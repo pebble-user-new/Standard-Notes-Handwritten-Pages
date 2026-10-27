@@ -3,7 +3,7 @@
   "name": "Handwritten Pages (local dev)",
   "content_type": "SN|Component",
   "area": "editor-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local development build of Handwritten Pages (served from localhost:8085).",
   "url": "http://localhost:8085/",
   "download_url": "http://localhost:8085/latest.zip",
