@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mock Standard Notes host</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #fff; }
+    iframe { border: 0; width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+<iframe id="f" src="./index.html?debug"></iframe>
+<script>
+// A tiny stand-in for the Standard Notes component host. It speaks the same postMessage protocol
+// as sn-extension-api expects: component-registered -> stream-context-item replies -> save-items.
+// Exposed as window.mock for automated tests.
+const frame = document.getElementById('f');
+const params = new URLSearchParams(location.search);
+const note = {
+  uuid: 'mock-note-1',
+  text: params.get('empty') ? '' : (params.has('fresh') ? '' : (localStorage.getItem('mock-note') || '')),
+  preview: '',
+  locked: false,
+};
+let streamId = null;
+const mock = (window.mock = {
+  note,
+  saves: 0,
+  setLocked(v) { note.locked = v; push(); },
+  setText(t) { note.text = t; push(); },
+  reset() { note.text = ''; localStorage.removeItem('mock-note'); },
+});
+
+function itemJson() {
+  return {
+    uuid: note.uuid,
+    content_type: 'Note',
+    isMetadataUpdate: false,
+    content: {
+      text: note.text,
+      preview_plain: note.preview,
+      editorIdentifier: 'mock.editor',
+      appData: { 'org.standardnotes.sn': { locked: note.locked }, 'mock.editor': {} },
+    },
+  };
+}
+function reply(id, data) {
+  frame.contentWindow.postMessage({ action: 'reply', original: { messageId: id }, data }, '*');
+}
+function push() {
+  if (streamId) reply(streamId, { item: itemJson() });
+}
+
+window.addEventListener('message', (e) => {
+  if (e.source !== frame.contentWindow) return;
+  const m = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+  if (!m || !m.action) return;
+  if (m.action === 'stream-context-item') {
+    streamId = m.messageId;
+    reply(m.messageId, { item: itemJson() });
+  } else if (m.action === 'save-items') {
+    for (const item of m.data.items) {
+      note.text = item.content.text;
+      note.preview = item.content.preview_plain;
+      localStorage.setItem('mock-note', note.text);
+      mock.saves++;
+    }
+    reply(m.messageId, {});
+    push(); // real Standard Notes echoes the saved item back to the editor
+  }
+});
+
+frame.addEventListener('load', () => {
+  frame.contentWindow.postMessage(
+    {
+      action: 'component-registered',
+      sessionKey: 'mock-session',
+      componentData: {},
+      data: { environment: 'web', platform: 'web-desktop', uuid: 'mock-component', activeThemeUrls: [] },
+    },
+    '*',
+  );
+});
+</script>
+</body>
+</html>

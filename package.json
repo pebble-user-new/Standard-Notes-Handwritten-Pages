@@ -1,0 +1,24 @@
+{
+  "name": "sn-handwritten-pages",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standard Notes editor plugin: a handwritten paper notebook (A4 pages, lined/grid/dotted/blank, pinch-zoom, swipe between pages) stored in a single note.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --dev --serve",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/unit/*.test.ts\"",
+    "test:e2e": "node test/e2e/run.mjs"
+  },
+  "dependencies": {
+    "sn-extension-api": "0.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "fflate": "^0.8.3",
+    "typescript": "^5.9.3"
+  }
+}

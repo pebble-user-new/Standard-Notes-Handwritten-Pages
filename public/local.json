@@ -1,0 +1,12 @@
+{
+  "identifier": "dev.pebble-user-new.handwritten-pages.local",
+  "name": "Handwritten Pages (local dev)",
+  "content_type": "SN|Component",
+  "area": "editor-editor",
+  "version": "$VERSION$",
+  "description": "Local development build of Handwritten Pages (served from localhost:8085).",
+  "url": "http://localhost:8085/",
+  "download_url": "http://localhost:8085/latest.zip",
+  "latest_url": "http://localhost:8085/package.json",
+  "thumbnail_url": ""
+}
