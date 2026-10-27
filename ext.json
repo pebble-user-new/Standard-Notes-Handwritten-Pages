@@ -3,7 +3,7 @@
   "name": "Handwritten Pages",
   "content_type": "SN|Component",
   "area": "editor-editor",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A paper-notebook style handwriting editor: A4 pages with blank, lined, grid or dotted paper, pinch to zoom, swipe between pages, all stored in one note.",
   "url": "https://pebble-user-new.github.io/Standard-Notes-Handwritten-Pages/",
   "download_url": "https://pebble-user-new.github.io/Standard-Notes-Handwritten-Pages/latest.zip",
