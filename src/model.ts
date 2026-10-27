@@ -5,21 +5,37 @@
 export const PAGE_GAP = 40;
 
 export type PageSize = 'a4' | 'a5' | 'a6';
+/** extra page height in percent (width stays), for differently shaped screens */
+export type Length = 0 | 50 | 75 | 100;
 
 export interface PageDims {
   w: number;
   h: number;
   label: string;
+  /** physical size in mm, e.g. "105 × 148 mm" */
   mm: string;
 }
 
 // ISO A series in points (1 pt = 1/72 in); every size halves the one before it.
-export const PAGE_SIZES: Record<PageSize, PageDims> = {
-  a4: { w: 595, h: 842, label: 'A4', mm: '210 × 297 mm' },
-  a5: { w: 420, h: 595, label: 'A5', mm: '148 × 210 mm' },
-  a6: { w: 298, h: 420, label: 'A6', mm: '105 × 148 mm' },
+const BASE: Record<PageSize, { w: number; h: number; wmm: number; hmm: number }> = {
+  a4: { w: 595, h: 842, wmm: 210, hmm: 297 },
+  a5: { w: 420, h: 595, wmm: 148, hmm: 210 },
+  a6: { w: 298, h: 420, wmm: 105, hmm: 148 },
 };
 export const SIZES: PageSize[] = ['a4', 'a5', 'a6'];
+export const LENGTHS: Length[] = [0, 50, 75, 100];
+
+/** Page size in points for a paper size and extra length: the width never changes, the height grows. */
+export function dimsFor(size: PageSize, length: Length): PageDims {
+  const b = BASE[size];
+  const f = 1 + length / 100;
+  return {
+    w: b.w,
+    h: Math.round(b.h * f),
+    label: size.toUpperCase(),
+    mm: `${b.wmm} × ${Math.round(b.hmm * f)} mm`,
+  };
+}
 
 export type Template = 'blank' | 'lined' | 'grid' | 'dots';
 export type Paper = 'white' | 'cream' | 'grey';
@@ -77,6 +93,8 @@ export interface Page {
 export interface Notebook {
   /** paper size, the same for every page */
   size: PageSize;
+  /** extra page height (percent), the same for every page */
+  length: Length;
   /** template used for newly added pages */
   template: Template;
   spacing: Spacing;
@@ -115,9 +133,9 @@ export function newPage(template: Template): Page {
 }
 
 export function newNotebook(): Notebook {
-  return { size: 'a4', template: 'lined', spacing: 1, paper: 'white', pages: [newPage('lined')] };
+  return { size: 'a4', length: 0, template: 'lined', spacing: 1, paper: 'white', pages: [newPage('lined')] };
 }
 
 export function pageDims(nb: Notebook): PageDims {
-  return PAGE_SIZES[nb.size];
+  return dimsFor(nb.size, nb.length);
 }

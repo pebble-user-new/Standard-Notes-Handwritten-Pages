@@ -1,17 +1,17 @@
 // Compact JSON encoding of a notebook into the Standard Notes note text.
 //
-//   {"app":"sn-handwritten-pages","v":1,"sz":"a5","t":"lined","sp":1,"pp":"white",
+//   {"app":"sn-handwritten-pages","v":1,"sz":"a5","ln":50,"t":"lined","sp":1,"pp":"white",
 //    "pages":[{"t":"lined","s":[[tool,"rrggbb",width*10,hasPressure, ...deltas], ...]}]}
 //
 // Versions: A4 notebooks are written as v1 (identical to the first release, so an older cached copy of
-// the plugin still opens them). Notebooks with another paper size ("sz") are written as v2, which an
+// the plugin still opens them). Notebooks with another paper size ("sz") or extra page length ("ln", percent) are written as v2, which an
 // old copy refuses to open instead of silently showing them as A4 and saving that back.
 //
 // Points are stored in 1/10 pt, delta-encoded against the previous point (first point is absolute).
 // Pressure (when present) is stored in 1/100 steps, also delta-encoded.
 
-import { newNotebook, newPage, SIZES, TEMPLATES, PAPERS } from './model.ts';
-import type { Notebook, Page, PageSize, Paper, Spacing, Stroke, Template } from './model.ts';
+import { newNotebook, newPage, LENGTHS, SIZES, TEMPLATES, PAPERS } from './model.ts';
+import type { Length, Notebook, Page, PageSize, Paper, Spacing, Stroke, Template } from './model.ts';
 
 export const APP_ID = 'sn-handwritten-pages';
 /** newest format this build understands */
@@ -48,11 +48,12 @@ function encodeStroke(s: Stroke): (number | string)[] {
 }
 
 export function encode(nb: Notebook): string {
-  const nonA4 = nb.size !== 'a4';
+  const nonA4 = nb.size !== 'a4' || nb.length !== 0;
   return JSON.stringify({
     app: APP_ID,
     v: nonA4 ? 2 : 1,
-    ...(nonA4 ? { sz: nb.size } : {}),
+    ...(nb.size !== 'a4' ? { sz: nb.size } : {}),
+    ...(nb.length ? { ln: nb.length } : {}),
     t: nb.template,
     sp: nb.spacing,
     pp: nb.paper,
@@ -111,6 +112,7 @@ export function decode(text: string): DecodeResult {
   const template = asTemplate(o.t, 'lined');
   const nb: Notebook = {
     size: (SIZES.includes(o.sz as PageSize) ? o.sz : 'a4') as PageSize,
+    length: (LENGTHS.includes(o.ln as Length) ? o.ln : 0) as Length,
     template,
     spacing: (o.sp === 0 || o.sp === 1 || o.sp === 2 ? o.sp : 1) as Spacing,
     paper: (PAPERS.includes(o.pp as Paper) ? o.pp : 'white') as Paper,

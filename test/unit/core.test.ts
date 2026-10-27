@@ -2,12 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decode, encode, FORMAT_VERSION } from '../../src/codec.ts';
 import { eraseFromStroke, scaleStroke, segmentInCircle, simplify, strokeHit } from '../../src/geometry.ts';
-import { PAGE_GAP, PAGE_SIZES, newNotebook, newPage } from '../../src/model.ts';
+import { PAGE_GAP, dimsFor, newNotebook, newPage } from '../../src/model.ts';
 import type { Notebook, Stroke } from '../../src/model.ts';
 import { Viewport } from '../../src/viewport.ts';
 
-const PAGE_W = PAGE_SIZES.a4.w;
-const PAGE_H = PAGE_SIZES.a4.h;
+const PAGE_W = dimsFor('a4', 0).w;
+const PAGE_H = dimsFor('a4', 0).h;
 
 function line(x0: number, y0: number, x1: number, y1: number, n = 11): Stroke {
   const pts: number[] = [];
@@ -198,4 +198,31 @@ test('pageAtWorld ignores gaps and areas outside pages', () => {
   assert.equal(v.pageAtWorld(-5, 10), -1);
   assert.equal(v.pageAtWorld(v.pageX(2) + 10, 10), 2);
   assert.equal(v.pageAtWorld(v.pageX(3) + 10, 10), -1);
+});
+
+test('taller paper keeps the width and grows the height', () => {
+  assert.deepEqual([dimsFor('a6', 0).w, dimsFor('a6', 0).h], [298, 420]);
+  assert.deepEqual([dimsFor('a6', 50).w, dimsFor('a6', 50).h], [298, 630]);
+  assert.equal(dimsFor('a6', 75).h, 735);
+  assert.equal(dimsFor('a6', 100).h, 840);
+  assert.equal(dimsFor('a6', 50).mm, '105 × 222 mm');
+  assert.equal(dimsFor('a4', 100).h, 1684);
+});
+
+test('paper length round-trips through the codec; the default is not written', () => {
+  const nb = newNotebook();
+  assert.ok(!('ln' in JSON.parse(encode(nb))));
+  assert.equal(JSON.parse(encode(nb)).v, 1);
+  nb.size = 'a6';
+  nb.length = 75;
+  const text = encode(nb);
+  assert.equal(JSON.parse(text).ln, 75);
+  assert.equal(JSON.parse(text).v, 2);
+  const res = decode(text);
+  assert.equal(res.kind, 'ok');
+  if (res.kind === 'ok') assert.deepEqual([res.nb.size, res.nb.length], ['a6', 75]);
+  const bad = JSON.parse(text);
+  bad.ln = 33;
+  const res2 = decode(JSON.stringify(bad));
+  if (res2.kind === 'ok') assert.equal(res2.nb.length, 0);
 });

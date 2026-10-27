@@ -2,8 +2,8 @@
 
 import { drawPage } from './draw.ts';
 import { ICON, templatePreview } from './icons.ts';
-import { PAGE_SIZES, PAPERS, PAPER_COLOR, SIZES, TEMPLATES, TEMPLATE_LABEL, pageDims } from './model.ts';
-import type { PageSize, Spacing } from './model.ts';
+import { LENGTHS, PAPERS, PAPER_COLOR, SIZES, TEMPLATES, TEMPLATE_LABEL, dimsFor, pageDims } from './model.ts';
+import type { Length, PageSize, Spacing } from './model.ts';
 import { ERASER_SIZES, HL_COLORS, HL_WIDTHS, MAX_PRESETS, PEN_SHADES, PEN_WIDTHS } from './prefs.ts';
 import type { TouchMode } from './prefs.ts';
 import type { App } from './app.ts';
@@ -49,8 +49,7 @@ export class UI {
   private prevBtn!: HTMLButtonElement;
   private nextBtn!: HTMLButtonElement;
   private toolBtns = new Map<string, HTMLButtonElement>();
-  private inkBtn!: HTMLButtonElement;
-  private inkDot!: HTMLSpanElement;
+  private bottomBar!: HTMLElement;
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
   private editButtons: HTMLButtonElement[] = [];
@@ -108,23 +107,19 @@ export class UI {
       this.editButtons.push(b);
       return b;
     };
-    // ---- preset row: pen presets | eraser, undo, redo | highlighter presets
+    // ---- preset row: pen presets | eraser | highlighter presets (stays visible in focus mode)
     this.penGroup = h('div', 'preset-group pens');
     this.hlGroup = h('div', 'preset-group hls');
-    this.undoBtn = iconButton(ICON.undo, 'Undo', () => app.undo());
-    this.redoBtn = iconButton(ICON.redo, 'Redo', () => app.redo());
-    this.editButtons.push(this.undoBtn, this.redoBtn);
-    const middle = h('div', 'preset-mid', undefined, mkTool('eraser', ICON.eraser, 'Eraser'), this.undoBtn, this.redoBtn);
+    const middle = h('div', 'preset-mid', undefined, mkTool('eraser', ICON.eraser, 'Eraser'));
     const presets = h('div', 'bar presets', undefined, this.penGroup, middle, this.hlGroup);
 
-    // ---- bottom bar
-    const bottom = h('footer', 'bar bottom');
-    bottom.append(mkTool('pen', ICON.pen, 'Pen'), mkTool('highlighter', ICON.highlighter, 'Highlighter'), h('span', 'sp'));
-    this.inkDot = h('span', 'ink-dot');
-    this.inkBtn = h('button', 'btn ink-btn', { type: 'button', 'aria-label': 'Colour and size', title: 'Colour and size' }, this.inkDot);
-    this.inkBtn.addEventListener('click', () => this.togglePopover('ink'));
-    this.editButtons.push(this.inkBtn);
-    bottom.append(this.inkBtn);
+    // ---- bottom bar: pen, highlighter | undo, redo | add page
+    this.undoBtn = iconButton(ICON.undo, 'Undo', () => app.undo());
+    this.redoBtn = iconButton(ICON.redo, 'Redo', () => app.redo());
+    const addPage = iconButton(ICON.addPage, 'Add page', () => app.insertPageAfter(app.curPage()));
+    this.editButtons.push(this.undoBtn, this.redoBtn, addPage);
+    const bottom = h('footer', 'bar bottom', undefined, h('div', 'bottom-left', undefined, mkTool('pen', ICON.pen, 'Pen'), mkTool('highlighter', ICON.highlighter, 'Highlighter')), h('div', 'bottom-mid', undefined, this.undoBtn, this.redoBtn), h('div', 'bottom-right', undefined, addPage));
+    this.bottomBar = bottom;
 
     this.top = top;
     this.tray = h('div', 'tray', undefined, presets, bottom);
@@ -147,7 +142,7 @@ export class UI {
     if (on) {
       // popovers are positioned clear of the overlaid bars
       this.root.style.setProperty('--top-h', `${this.top.offsetHeight}px`);
-      this.root.style.setProperty('--tray-h', `${this.tray.offsetHeight}px`);
+      this.root.style.setProperty('--bot-h', `${this.bottomBar.offsetHeight}px`);
     }
     this.root.classList.toggle('peek', on);
   }
@@ -167,10 +162,6 @@ export class UI {
     this.nextBtn.disabled = cur >= n - 1;
     const tool = app.prefs.tool;
     for (const [id, b] of this.toolBtns) b.setAttribute('aria-pressed', String(id === tool));
-    this.inkBtn.style.display = '';
-    const color = tool === 'eraser' ? '' : app.currentColor();
-    this.inkDot.style.background = color || 'transparent';
-    this.inkDot.classList.toggle('eraser', tool === 'eraser');
     this.undoBtn.disabled = !app.history.canUndo || !app.canEdit;
     this.redoBtn.disabled = !app.history.canRedo || !app.canEdit;
     for (const b of this.editButtons) {
@@ -415,11 +406,18 @@ export class UI {
     pop.append(
       h('div', 'pop-sub', undefined, 'Paper size'),
       this.seg<PageSize>(
-        SIZES.map((k) => ({ value: k, label: PAGE_SIZES[k].label })),
+        SIZES.map((k) => ({ value: k, label: dimsFor(k, 0).label })),
         nb.size,
         (v) => app.setPageSize(v),
       ),
-      h('p', 'muted small', undefined, `${PAGE_SIZES[nb.size].mm}. Changing the size scales your writing to fit (undo restores it).`),
+      h('p', 'muted small', undefined, 'Changing the size scales your writing to fit (undo restores it).'),
+      h('div', 'pop-sub', undefined, 'Taller paper'),
+      this.seg<Length>(
+        LENGTHS.map((l) => ({ value: l, label: l ? `+${l}%` : 'Standard' })),
+        nb.length,
+        (v) => app.setPageLength(v),
+      ),
+      h('p', 'muted small', undefined, `Now ${pageDims(nb).mm}. Makes every page longer and keeps the width, to suit other screens. Your writing stays as it is.`),
     );
 
     const paperRow = h('div', 'swatches');
@@ -533,7 +531,8 @@ export class UI {
       thumbs.push({ canvas, index: i });
     });
     const add = h('button', 'thumb add', { type: 'button', 'aria-label': 'Add page at the end' });
-    add.innerHTML = `<div class="addbox">${ICON.plus}</div><span>Add page</span>`;
+    const dims = pageDims(app.nb);
+    add.innerHTML = `<div class="addbox" style="aspect-ratio:${dims.w} / ${dims.h}">${ICON.plus}</div><span>Add page</span>`;
     add.disabled = !app.canEdit;
     add.addEventListener('click', () => {
       this.toggleOverview(false);

@@ -2,7 +2,7 @@
 // The viewport maps world -> screen:  screen = world * s + (tx, ty).
 // Pure math, no DOM, so it can be unit-tested.
 
-import { PAGE_GAP, PAGE_SIZES } from './model.ts';
+import { PAGE_GAP, dimsFor } from './model.ts';
 
 export interface View {
   s: number;
@@ -20,8 +20,8 @@ export class Viewport {
   vh = 640;
   pages = 1;
   /** page size in points (set from the notebook's paper size) */
-  pageW: number = PAGE_SIZES.a4.w;
-  pageH: number = PAGE_SIZES.a4.h;
+  pageW: number = dimsFor('a4', 0).w;
+  pageH: number = dimsFor('a4', 0).h;
   /** screen padding around a page when it is "fit" to the screen */
   readonly pad = 10;
 

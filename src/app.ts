@@ -9,8 +9,8 @@ import { History } from './history.ts';
 import { createHost } from './host.ts';
 import type { NoteHost } from './host.ts';
 import { Input } from './input.ts';
-import { PAPER_COLOR, PAGE_SIZES, computeBBox, newPage, pageDims, strideOf } from './model.ts';
-import type { Notebook, Page, PageSize, Paper, Spacing, Stroke, Template, Tool } from './model.ts';
+import { PAPER_COLOR, computeBBox, dimsFor, newPage, pageDims, strideOf } from './model.ts';
+import type { Length, Notebook, Page, PageSize, Paper, Spacing, Stroke, Template, Tool } from './model.ts';
 import { HL_COLORS, MAX_PRESETS, PEN_COLORS, applySyncedPresets, loadPrefs, presetsJson, savePrefs, syncedPresets } from './prefs.ts';
 import type { EraserMode, Prefs, TouchMode } from './prefs.ts';
 import { Renderer } from './renderer.ts';
@@ -629,8 +629,8 @@ export class App {
   setPageSize(size: PageSize): void {
     if (!this.canEdit || size === this.nb.size) return;
     const nb = this.nb;
-    const from = PAGE_SIZES[nb.size];
-    const to = PAGE_SIZES[size];
+    const from = dimsFor(nb.size, nb.length);
+    const to = dimsFor(size, nb.length);
     const k = Math.min(to.w / from.w, to.h / from.h);
     const pages = nb.pages.slice();
     const prevSize = nb.size;
@@ -639,15 +639,36 @@ export class App {
     const apply = (sz: PageSize, strokes: Stroke[][]) => {
       nb.size = sz;
       pages.forEach((p, i) => (p.strokes = strokes[i]));
-      this.syncPageSize();
-      this.camera.stop();
-      this.vp.view = this.vp.viewFor(this.vp.currentPage());
-      this.lastPageShown = -1;
-      this.viewChanged();
-      this.changed();
+      this.pageShapeChanged();
     };
     this.history.push({ undo: () => apply(prevSize, before), redo: () => apply(size, after) });
     apply(size, after);
+  }
+
+  /**
+   * Make every page taller by 0 / 50 / 75 / 100 % (the width stays), for screens of other shapes.
+   * Writing is left exactly as it is; if the pages get shorter again the ink below the new bottom edge is
+   * only hidden (it comes back when the pages are made taller again).
+   */
+  setPageLength(length: Length): void {
+    if (!this.canEdit || length === this.nb.length) return;
+    const nb = this.nb;
+    const prev = nb.length;
+    const apply = (l: Length) => {
+      nb.length = l;
+      this.pageShapeChanged();
+    };
+    this.history.push({ undo: () => apply(prev), redo: () => apply(length) });
+    apply(length);
+  }
+
+  private pageShapeChanged(): void {
+    this.syncPageSize();
+    this.camera.stop();
+    this.vp.view = this.vp.viewFor(this.vp.currentPage());
+    this.lastPageShown = -1;
+    this.viewChanged();
+    this.changed();
   }
 
   // ---------------------------------------------------------------- focus mode

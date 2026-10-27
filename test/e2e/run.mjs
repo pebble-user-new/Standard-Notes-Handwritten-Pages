@@ -342,7 +342,7 @@ try {
       await sleep(30);
       await t.touch('touchEnd', []);
     };
-    const barsShown = () => t.frame.evaluate(() => [...document.querySelectorAll('.bar')].every((b) => getComputedStyle(b).visibility !== 'hidden'));
+    const barsShown = () => t.frame.evaluate(() => [...document.querySelectorAll('.bar.top, .bar.bottom')].every((b) => getComputedStyle(b).visibility !== 'hidden'));
     const c = await t.toScreen(300, 400);
     await tapAt(c.x, c.y);
     await sleep(500);
@@ -353,7 +353,7 @@ try {
     await sleep(450);
     let s = await t.state();
     check('double-tap with a finger enters focus mode', s.focus === true, JSON.stringify(s));
-    check('...which hides both toolbars', !(await barsShown()));
+    check('...which hides the top toolbar and the bottom bar', !(await barsShown()));
     check('...and the page gets the whole screen (still fits)', Math.abs(s.ratio - 1) < 0.02, `ratio ${s.ratio}`);
     await sleep(500);
     await tapAt(c.x, c.y);
@@ -439,7 +439,7 @@ try {
     doc = JSON.parse((await t.saved()).text);
     check('an A5 notebook is saved as v2 with sz=a5', doc.v === 2 && doc.sz === 'a5', JSON.stringify({ v: doc.v, sz: doc.sz }));
 
-    await t.frame.click('.pop.page .seg button:has-text("A6")');
+    await t.frame.click('.pop.page .seg button:text-is("A6")');
     await sleep(500);
     s = await t.state();
     check('A6 is 298 x 420 points', s.size === 'a6' && s.pageW === 298 && s.pageH === 420, JSON.stringify(s));
@@ -485,6 +485,73 @@ try {
     await fr.waitForFunction(() => window.__hp && window.__hp.vp.vw > 10);
     const r = await fr.evaluate(() => ({ size: window.__hp.nb.size, w: window.__hp.vp.pageW, h: window.__hp.vp.pageH }));
     check('the paper size survives a reload', r.size === 'a6' && r.w === 298 && r.h === 420, JSON.stringify(r));
+    check('no script errors', t.errors.length === 0, JSON.stringify(t.errors));
+    await t.close();
+  }
+
+  // ------------------------------------------------------------------ 4a3b. taller paper
+  {
+    const t = await open('taller paper (+50 / +75 / +100 %)', { mobile: false, width: 900, height: 760, dsf: 1 });
+    await t.click('button[aria-label="Page style"]');
+    await t.frame.click('.pop.page .seg button:text-is("A6")');
+    await sleep(400);
+    const a = await t.toScreen(60, 100);
+    const b = await t.toScreen(200, 120);
+    await t.click('button[aria-label="Page style"]'); // close
+    await t.mouseStroke(line(a.x, a.y, b.x, b.y, 8));
+    const read = () => t.ev(() => ({ x: window.__hp.nb.pages[0].strokes[0].pts[0], w: window.__hp.nb.pages[0].strokes[0].width, n: window.__hp.nb.pages[0].strokes.length }));
+    const before = await read();
+    await t.click('button[aria-label="Page style"]');
+    const labels = await t.frame.evaluate(() => [...document.querySelectorAll('.pop.page .seg')].map((g) => [...g.querySelectorAll('button')].map((x) => x.textContent).join('|')));
+    check('there is a "Taller paper" option: Standard, +50%, +75%, +100%', labels.includes('Standard|+50%|+75%|+100%'), JSON.stringify(labels));
+    const dims = [];
+    for (const [label, expectH] of [['+50%', 630], ['+75%', 735], ['+100%', 840]]) {
+      await t.frame.click(`.pop.page .seg button:text-is("${label}")`);
+      await sleep(450);
+      const s = await t.state();
+      dims.push([label, s.pageW, s.pageH, Math.abs(s.ratio - 1) < 0.02]);
+      check(`${label}: A6 stays 298 wide and becomes ${expectH} tall, and still fits the screen`, s.pageW === 298 && s.pageH === expectH && Math.abs(s.ratio - 1) < 0.02, JSON.stringify(s));
+    }
+    const after = await read();
+    check('making the paper taller leaves the writing alone', after.x === before.x && after.w === before.w && after.n === 1, JSON.stringify({ before, after }));
+    await t.shot('06c-a6-taller');
+    await sleep(1100);
+    const doc = JSON.parse((await t.saved()).text);
+    check('it is saved with ln=100', doc.ln === 100 && doc.sz === 'a6', JSON.stringify({ v: doc.v, sz: doc.sz, ln: doc.ln }));
+    // it combines with another size and the writing scales with the size change
+    await t.frame.click('.pop.page .seg button:text-is("A5")');
+    await sleep(450);
+    let s = await t.state();
+    check('the taller setting is kept when the paper size changes (A5 + 100% = 420 x 1190)', s.size === 'a5' && s.pageW === 420 && s.pageH === 1190, JSON.stringify(s));
+    await t.frame.click('.pop.page .seg button:text-is("A6")');
+    await sleep(450);
+    // back to standard: writing is not scaled or lost, undo/redo work
+    await t.frame.click('.pop.page .seg button:text-is("Standard")');
+    await sleep(450);
+    s = await t.state();
+    check('Standard returns to the normal height', s.pageH === 420, JSON.stringify(s));
+    const again = await read();
+    check('...with the writing unchanged (within the rounding of the A6 -> A5 -> A6 round trip)', Math.abs(again.x - before.x) < 0.5 && again.n === 1, JSON.stringify(again));
+    await t.click('button[aria-label="Undo"]');
+    await sleep(350);
+    check('undo restores +100%', (await t.state()).pageH === 840);
+    await t.click('button[aria-label="Redo"]');
+    await sleep(350);
+    check('redo returns to standard', (await t.state()).pageH === 420);
+    await t.frame.click('.pop.page .seg button:text-is("+75%")');
+    await sleep(1100);
+    await t.page.goto(`${BASE}/host.html`);
+    await t.page.waitForSelector('iframe');
+    const fr = await (await t.page.$('iframe')).contentFrame();
+    await fr.waitForFunction(() => window.__hp && window.__hp.vp.vw > 10);
+    check('the paper length survives a reload', (await fr.evaluate(() => window.__hp.vp.pageH)) === 735);
+    // the overview's "add page" box has the page's proportions
+    await fr.click('button.page-label');
+    const box = await fr.evaluate(() => {
+      const r = document.querySelector('.addbox').getBoundingClientRect();
+      return r.height / r.width;
+    }).catch(() => 0);
+    check('the add-page tile matches the paper proportions', Math.abs(box - 735 / 298) < 0.08, String(box));
     check('no script errors', t.errors.length === 0, JSON.stringify(t.errors));
     await t.close();
   }
@@ -549,16 +616,22 @@ try {
     const fs = await t.ev(() => !!document.fullscreenElement);
     console.log(`       browser fullscreen granted in this test host: ${fs}`);
     let v = await vis();
-    check('focus mode removes the top toolbar and the whole bottom tray', s.focus && !v.top && !v.tray && !v.presets && !v.bottom, JSON.stringify(v));
-    check('...so the page area grows', hFocus > h0 + 100, `${h0} -> ${hFocus}`);
+    check('focus mode removes the top toolbar and the bottom bar but keeps the preset row', s.focus && !v.top && !v.bottom && v.presets, JSON.stringify(v));
+    check('...so the page area grows (by the two bars)', hFocus > h0 + 80, `${h0} -> ${hFocus}`);
 
     // a single tap brings both back as an overlay (after the double-tap window)
     await tapAt(c.x, c.y);
     await sleep(150);
-    check('toolbars do not appear until the double-tap window has passed', !(await vis()).tray);
+    check('toolbars do not appear until the double-tap window has passed', !(await vis()).bottom);
     await sleep(600);
     v = await vis();
-    check('a single tap brings up the page toolbar and the preset/tool tray', v.top && v.tray && v.presets && v.bottom, JSON.stringify(v));
+    check('a single tap brings up the page toolbar and the bottom bar', v.top && v.tray && v.presets && v.bottom, JSON.stringify(v));
+    const stack = await t.frame.evaluate(() => {
+      const p = document.querySelector('.bar.presets').getBoundingClientRect();
+      const b = document.querySelector('.bar.bottom').getBoundingClientRect();
+      return { presetsBottom: p.bottom, bottomTop: b.top, bottomBottom: b.bottom, vh: innerHeight };
+    });
+    check('...the preset row moves up and the bottom bar sits under it at the screen edge', stack.presetsBottom <= stack.bottomTop + 1 && Math.abs(stack.bottomBottom - stack.vh) < 2, JSON.stringify(stack));
     check('...as an overlay: the page does not resize or jump', (await stageH()) === hFocus && Math.abs((await t.state()).ratio - 1) < 0.02);
     // the overlay is usable
     await t.frame.click('button[aria-label="Add page after this one"]');
@@ -578,17 +651,17 @@ try {
     await tapAt(c2.x, c2.y);
     await sleep(700);
     v = await vis();
-    check('a second single tap hides them again', (await t.state()).focus && !v.top && !v.tray, JSON.stringify(v));
+    check('a second single tap hides them again (the preset row stays)', (await t.state()).focus && !v.top && !v.bottom && v.presets, JSON.stringify(v));
     // pen use hides a peeked toolbar by itself
     await tapAt(c2.x, c2.y);
     await sleep(700);
-    check('toolbars are back', (await vis()).tray);
+    check('toolbars are back', (await vis()).bottom);
     const a = await t.toScreen(100, 250);
     const b = await t.toScreen(300, 280);
     await t.penStroke(line(a.x, a.y, b.x, b.y, 8), Array(8).fill(0.5));
     await sleep(500);
     v = await vis();
-    check('starting to write with the pen tucks the toolbars away', !v.tray && !v.top && (await t.state()).strokes[(await t.state()).cur] === 1, JSON.stringify(v));
+    check('starting to write with the pen tucks the toolbars away', !v.bottom && !v.top && v.presets && (await t.state()).strokes[(await t.state()).cur] === 1, JSON.stringify(v));
     // double-tap exits focus: toolbars are in the layout again
     await tapAt(c2.x, c2.y);
     await sleep(120);
@@ -596,7 +669,7 @@ try {
     await sleep(500);
     s = await t.state();
     v = await vis();
-    check('double-tap leaves focus mode and restores the toolbars', !s.focus && v.top && v.tray, JSON.stringify({ s: s.focus, v }));
+    check('double-tap leaves focus mode and restores the toolbars', !s.focus && v.top && v.bottom, JSON.stringify({ s: s.focus, v }));
     check('...and browser fullscreen is released', !(await t.ev(() => !!document.fullscreenElement)));
     // leaving browser fullscreen by itself (Esc / swipe) also leaves focus mode
     if (fs) {
@@ -646,10 +719,25 @@ try {
     const prefs = () => t.ev(() => ({ ...window.__hp.prefs }));
     let i = await info();
     check('three pen and three highlighter presets by default', i.pens === 3 && i.hls === 3, JSON.stringify(i));
-    check('eraser, undo and redo sit in the middle', i.mids.join() === 'Eraser,Undo,Redo', i.mids.join());
+    check('the eraser sits in the middle of the preset row', i.mids.join() === 'Eraser', i.mids.join());
     check('pens are on the left, highlighters on the right', i.penRight <= i.midLeft + 1 && i.hlLeft >= i.midRight - 1, JSON.stringify(i));
     check('the middle is centred', Math.abs(i.midCentre - i.rowCentre) < 1, `${i.midCentre} vs ${i.rowCentre}`);
     await t.shot('09-presets');
+    // bottom bar: pen + highlighter | undo, redo (centred) | add page; no colour dot any more
+    const bb = await t.frame.evaluate(() => {
+      const bar = document.querySelector('.bar.bottom').getBoundingClientRect();
+      const mid = document.querySelector('.bottom-mid').getBoundingClientRect();
+      const names = (sel) => [...document.querySelectorAll(sel + ' button')].map((b) => b.getAttribute('aria-label'));
+      const add = document.querySelector('button[aria-label="Add page"]').getBoundingClientRect();
+      return { barCentre: bar.left + bar.width / 2, midCentre: mid.left + mid.width / 2, left: names('.bottom-left'), mid: names('.bottom-mid'), right: names('.bottom-right'), addRight: add.right, barRight: bar.right, dot: !!document.querySelector('.ink-dot, [aria-label="Colour and size"]') };
+    });
+    check('bottom bar: Pen, Highlighter | Undo, Redo | Add page', bb.left.join() === 'Pen,Highlighter' && bb.mid.join() === 'Undo,Redo' && bb.right.join() === 'Add page', JSON.stringify(bb));
+    check('undo and redo are centred at the bottom', Math.abs(bb.barCentre - bb.midCentre) < 1, JSON.stringify(bb));
+    check('add page sits at the bottom right', bb.barRight - bb.addRight < 12, JSON.stringify(bb));
+    check('the pen-colour circle is gone', !bb.dot);
+    await t.frame.click('button[aria-label="Add page"]');
+    await sleep(400);
+    check('the bottom Add page button adds a page after this one', (await t.state()).pages === 2 && (await t.state()).cur === 1);
 
     // add pen presets up to the maximum of six; the middle must stay centred each time
     const centred = [];
@@ -675,10 +763,10 @@ try {
     // adding beyond six does nothing
     await t.ev(() => window.__hp.ui.closePopovers());
     await t.frame.click('button[aria-label="Pen preset 1"]');
-    await t.frame.click('button[aria-label="Colour and size"]');
+    await t.frame.click('button[aria-label="Pen"]');
     await sleep(150);
     await t.shot('12-pen-colours');
-    await t.frame.click('button[aria-label="Colour and size"]');
+    await t.frame.click('button[aria-label="Pen"]');
     check('a seventh preset is refused', (await t.ev(() => window.__hp.addPreset('pen'))) === false && (await info()).pens === 6);
     await t.close();
   }
@@ -721,8 +809,8 @@ try {
     await t.click('button[aria-label="Highlighter"]');
     // editing the selected preset
     await t.click('button[aria-label="Pen preset 2"]');
-    await t.click('button[aria-label="Colour and size"]');
-    check('the colour dot opens the selected preset\'s options', await t.frame.isVisible('.pop.ink'));
+    await t.click('button[aria-label="Pen"]');
+    check('the selected Pen tool opens the selected preset\'s options', await t.frame.isVisible('.pop.ink'));
     await t.frame.click('.pop.ink .swatch >> nth=4');
     await t.frame.click('.pop.ink .size >> nth=3');
     p = await prefs();
@@ -776,7 +864,7 @@ try {
     await sleep(900);
     check('switching preset or tool is per device and writes nothing', (await writes()) === 0, String(await writes()));
     await t.click('button[aria-label="Pen"]');
-    await t.click('button[aria-label="Colour and size"]');
+    await t.click('button[aria-label="Pen"]');
     await t.frame.click('.pop.ink .swatch >> nth=18'); // third row, fifth column: lightest purple
     await t.click('button[aria-label="Add highlighter preset"]');
     await sleep(1000);
@@ -872,9 +960,9 @@ try {
     const h1 = await t.toScreen(230, 186);
     await t.mouseStroke([h0, h1]);
     await t.click('button[aria-label="Pen"]');
-    await t.click('button[aria-label="Colour and size"]'); // open ink popover
+    await t.click('button[aria-label="Pen"]'); // open ink popover
     await t.frame.click('.pop.ink .swatch >> nth=1');
-    await t.click('button[aria-label="Colour and size"]'); // close
+    await t.click('button[aria-label="Pen"]'); // close
     const w2 = word(60, 330, 2);
     await t.penStroke(await Promise.all(w2.map((p) => t.toScreen(p.x, p.y))), w2.map((p) => p.f));
     await t.shot('04c-handwriting');

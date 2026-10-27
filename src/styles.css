@@ -66,6 +66,23 @@ body {
   border-top: 1px solid var(--hp-border);
   padding-bottom: max(3px, env(safe-area-inset-bottom));
 }
+.bar.bottom {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+.bottom-left,
+.bottom-mid,
+.bottom-right {
+  display: flex;
+  align-items: center;
+}
+.bottom-mid {
+  justify-content: center;
+}
+.bottom-right {
+  justify-content: flex-end;
+}
 .bar .sp {
   flex: 1;
 }
@@ -112,20 +129,6 @@ body {
   background: var(--sn-stylekit-secondary-background-color, rgba(128, 128, 128, 0.14));
 }
 
-.ink-btn {
-  position: relative;
-}
-.ink-dot {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid var(--hp-fg);
-  box-shadow: 0 0 0 2px var(--hp-bg) inset;
-  display: block;
-}
-.ink-dot.eraser {
-  border-style: dashed;
-}
 
 /* ---------- preset row ---------- */
 .tray {
@@ -195,34 +198,42 @@ body {
 }
 
 /* ---------- focus mode ---------- */
-/* toolbars leave the layout (the page keeps the whole screen) and slide back over it on a single tap */
-.hp-app.focus .bar.top,
-.hp-app.focus .tray {
+/* The top bar and the bottom bar (tools, undo/redo, add page) leave the layout; the preset row stays.
+   A single tap slides them back over the page: the top bar from above, the bottom bar from below the
+   preset row, which moves up to make room (so the page never resizes or jumps). */
+.hp-app.focus .bar.top {
   position: absolute;
+  top: 0;
   left: 0;
   right: 0;
+  transform: translateY(-110%);
   transition: transform 0.18s ease;
   box-shadow: var(--hp-shadow);
 }
-.hp-app.focus .bar.top {
-  top: 0;
-  transform: translateY(-110%);
+.hp-app.focus .bar.bottom {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--hp-border);
 }
 .hp-app.focus .tray {
-  bottom: 0;
-  transform: translateY(110%);
+  transition: transform 0.18s ease;
 }
-.hp-app.focus.peek .bar.top,
-.hp-app.focus.peek .tray {
+.hp-app.focus.peek .bar.top {
   transform: none;
 }
+.hp-app.focus.peek .tray {
+  transform: translateY(calc(-1 * var(--bot-h, 52px)));
+  box-shadow: var(--hp-shadow);
+}
 .hp-app.focus:not(.peek) .bar.top,
-.hp-app.focus:not(.peek) .tray {
+.hp-app.focus:not(.peek) .bar.bottom {
   visibility: hidden;
   transition: transform 0.18s ease, visibility 0s 0.18s;
 }
 .hp-app.focus.peek .pop.ink {
-  bottom: calc(var(--tray-h, 0px) + 8px);
+  bottom: calc(var(--bot-h, 0px) + 8px);
 }
 .hp-app.focus.peek .pop.page,
 .hp-app.focus.peek .pop.menu {
@@ -503,7 +514,6 @@ body {
 }
 .addbox {
   width: 110px;
-  aspect-ratio: 595 / 842;
   border: 2px dashed var(--hp-muted);
   border-radius: 4px;
   display: grid;
