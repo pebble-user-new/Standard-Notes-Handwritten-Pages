@@ -7,7 +7,7 @@
 //   PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node test/e2e/run.mjs      (any Playwright install works)
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -26,7 +26,11 @@ async function loadPlaywright() {
   throw new Error('Playwright not found. Install it (npm i -D playwright) or run where it is preinstalled.');
 }
 
-execFileSync('node', ['build.mjs', '--dev'], { cwd: ROOT, stdio: 'inherit' });
+// E2E_PROD=1 runs the suite against the minified production bundle instead of the dev build
+const prod = process.env.E2E_PROD === '1';
+execFileSync('node', ['build.mjs', ...(prod ? [] : ['--dev'])], { cwd: ROOT, stdio: 'inherit' });
+if (prod) copyFileSync(join(ROOT, 'dev/host.html'), join(ROOT, 'dist/host.html'));
+console.log(prod ? 'Testing the PRODUCTION bundle' : 'Testing the dev bundle');
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.map': 'application/json', '.zip': 'application/zip' };
 const server = createServer((req, res) => {
