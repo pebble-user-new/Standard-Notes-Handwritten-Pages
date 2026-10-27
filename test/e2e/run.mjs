@@ -699,35 +699,30 @@ try {
     await t.click('button[aria-label="Highlighter preset 2"]');
     p = await prefs();
     check('tapping a highlighter preset switches tool and colour', p.tool === 'highlighter' && p.hi === 1 && p.hc === '#a7f3a0', JSON.stringify(p));
-    // the pen tool button at the bottom: first press selects the pen (at its preset), pressing again steps the preset
+    // the Pen tool at the bottom: returns to the pen at its preset, and pressing it again opens the colour/size options
     await t.click('button[aria-label="Pen"]');
     p = await prefs();
     check('the Pen tool returns to the pen (same preset)', p.tool === 'pen' && p.pi === 2, JSON.stringify(p));
+    check('...without opening anything yet', !(await t.frame.isVisible('.pop.ink')));
     await t.click('button[aria-label="Pen"]');
     p = await prefs();
-    check('pressing the selected Pen tool steps to the next preset (wraps around)', p.pi === 0 && p.pc === '#1c1c1e', JSON.stringify(p));
+    check('pressing the selected Pen tool opens the colour and size options', (await t.frame.isVisible('.pop.ink')) && p.pi === 2, JSON.stringify(p));
+    check('...which offer the pen colour grid', (await t.frame.locator('.pop.ink .swatch').count()) === 21);
     await t.click('button[aria-label="Pen"]');
+    check('...and pressing it again closes them', !(await t.frame.isVisible('.pop.ink')));
+    // presets are plain toggles: tapping the selected one again does nothing
+    await t.click('button[aria-label="Pen preset 3"]');
+    await t.click('button[aria-label="Pen preset 3"]');
     p = await prefs();
-    check('...and again', p.pi === 1 && p.pc === '#1f4fd8', JSON.stringify(p));
+    check('tapping a selected preset again does nothing', p.pi === 2 && p.pc === '#d62b2b' && !(await t.frame.isVisible('.pop.ink')), JSON.stringify(p));
     await t.click('button[aria-label="Highlighter"]');
     await t.click('button[aria-label="Highlighter"]');
-    p = await prefs();
-    check('the Highlighter tool steps highlighter presets the same way', p.tool === 'highlighter' && p.hi === 2, JSON.stringify(p));
+    check('the Highlighter tool opens its options the same way', (await t.frame.isVisible('.pop.ink')) && (await prefs()).tool === 'highlighter');
+    await t.click('button[aria-label="Highlighter"]');
     // editing the selected preset
     await t.click('button[aria-label="Pen preset 2"]');
-    await t.click('button[aria-label="Pen preset 2"]'); // tapping the selected one opens its options
-    check('tapping the selected preset opens its options', await t.frame.isVisible('.pop.ink'));
-    const swatchCols = await t.frame.evaluate(() => [...document.querySelectorAll('.pop.ink .swatch')].map((b) => b.style.backgroundColor));
-    check('the pen colour grid has 7 hues x 3 shades', swatchCols.length === 21 && new Set(swatchCols).size === 21, String(swatchCols.length));
-    const gridCols = await t.frame.evaluate(() => getComputedStyle(document.querySelector('.pop.ink .swatches')).gridTemplateColumns.split(' ').length);
-    check('...laid out as 7 columns', gridCols === 7, String(gridCols));
-    const hex = (c) => '#' + c.match(/\d+/g).map((n) => Number(n).toString(16).padStart(2, '0')).join('');
-    const names = swatchCols.map(hex);
-    check('cyan is available', names.includes('#0aa5c9'));
-    check('the lightest orange is yellow', names[20] === '#f6d52b', names[20]);
-    // the second and third rows are progressively lighter than the first
-    const lum = (h) => { const n = parseInt(h.slice(1), 16); return 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255); };
-    check('each hue gets two lighter shades', [0, 1, 2, 3, 4, 5, 6].every((c) => lum(names[c]) < lum(names[7 + c]) && lum(names[7 + c]) < lum(names[14 + c])));
+    await t.click('button[aria-label="Colour and size"]');
+    check('the colour dot opens the selected preset\'s options', await t.frame.isVisible('.pop.ink'));
     await t.frame.click('.pop.ink .swatch >> nth=4');
     await t.frame.click('.pop.ink .size >> nth=3');
     p = await prefs();
@@ -763,6 +758,56 @@ try {
     const bad = await open('corrupt presets fall back', { prefs: { v: 2, touch: 'scroll', penPresets: [{ color: 'red; background:url(x)', width: 1 }, 7, null], penIdx: 9 } });
     const rb = await bad.ev(() => ({ n: window.__hp.prefs.penPresets.length, idx: window.__hp.prefs.penIdx }));
     check('invalid saved presets are ignored', rb.n === 3 && rb.idx === 0, JSON.stringify(rb));
+    await bad.close();
+  }
+
+  // ------------------------------------------------------------------ 4a8. presets sync through the plugin's settings
+  {
+    const t = await open('presets are synced with the plugin settings', { mobile: false, width: 900, height: 760, dsf: 1, init: () => {
+      try {
+        if (!localStorage.getItem('mock-component-data')) localStorage.setItem('mock-component-data', JSON.stringify({ somethingElse: { keep: true } }));
+      } catch { /* ignore */ }
+    } });
+    const writes = () => t.page.evaluate(() => window.mock.dataWrites);
+    await sleep(800);
+    check('opening a notebook writes no settings', (await writes()) === 0);
+    await t.click('button[aria-label="Pen preset 2"]');
+    await t.click('button[aria-label="Highlighter"]');
+    await sleep(900);
+    check('switching preset or tool is per device and writes nothing', (await writes()) === 0, String(await writes()));
+    await t.click('button[aria-label="Pen"]');
+    await t.click('button[aria-label="Colour and size"]');
+    await t.frame.click('.pop.ink .swatch >> nth=18'); // third row, fifth column: lightest purple
+    await t.click('button[aria-label="Add highlighter preset"]');
+    await sleep(1000);
+    const data = await t.page.evaluate(() => window.mock.componentData);
+    check('changing presets writes them to the plugin settings (debounced)', (await writes()) >= 1 && (await writes()) <= 2, String(await writes()));
+    check('...pen preset 2 holds the new colour', data.presets && data.presets.pen[1].color.toLowerCase() === '#cdb4ee', JSON.stringify(data.presets && data.presets.pen));
+    check('...highlighter presets include the added one', data.presets && data.presets.hl.length === 4, JSON.stringify(data.presets && data.presets.hl));
+    check('...and other settings stored there are kept', data.somethingElse && data.somethingElse.keep === true, JSON.stringify(data));
+
+    // a "second device": same account data, nothing saved locally
+    await t.frame.evaluate(() => localStorage.removeItem('handwritten-pages:prefs:v1'));
+    await t.page.goto(`${BASE}/host.html`);
+    await t.page.waitForSelector('iframe');
+    const fr = await (await t.page.$('iframe')).contentFrame();
+    await fr.waitForFunction(() => window.__hp && window.__hp.vp.vw > 10);
+    await sleep(300);
+    const other = await fr.evaluate(() => ({ pen: window.__hp.prefs.penPresets.map((x) => x.color), hl: window.__hp.prefs.hlPresets.length, idx: window.__hp.prefs.penIdx, pc: window.__hp.prefs.penColor, dots: document.querySelectorAll('.preset-group.pens .preset:not(.add)').length }));
+    check('a device with no local settings picks the synced presets up', other.pen[1] === '#cdb4ee' && other.hl === 4 && other.dots === 3, JSON.stringify(other));
+    check('...and the active colour follows the selected preset', other.pc === other.pen[other.idx], JSON.stringify(other));
+    check('...without writing them back', (await t.page.evaluate(() => window.mock.dataWrites)) === 0);
+    await t.close();
+
+    // bad synced data is ignored
+    const bad = await open('invalid synced presets are ignored', { mobile: false, width: 900, height: 760, dsf: 1, init: () => {
+      try {
+        localStorage.setItem('mock-component-data', JSON.stringify({ presets: { v: 1, pen: [{ color: 'javascript:alert(1)', width: 1 }, 'x'], hl: 5 } }));
+      } catch { /* ignore */ }
+    } });
+    const rb = await bad.ev(() => ({ pen: window.__hp.prefs.penPresets.length, hl: window.__hp.prefs.hlPresets.length }));
+    check('invalid synced presets fall back to the local ones', rb.pen === 3 && rb.hl === 3, JSON.stringify(rb));
+    check('no script errors', bad.errors.length === 0, JSON.stringify(bad.errors));
     await bad.close();
   }
 

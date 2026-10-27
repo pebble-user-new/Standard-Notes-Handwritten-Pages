@@ -11,7 +11,7 @@ import type { NoteHost } from './host.ts';
 import { Input } from './input.ts';
 import { PAPER_COLOR, PAGE_SIZES, computeBBox, newPage, pageDims, strideOf } from './model.ts';
 import type { Notebook, Page, PageSize, Paper, Spacing, Stroke, Template, Tool } from './model.ts';
-import { HL_COLORS, MAX_PRESETS, PEN_COLORS, loadPrefs, savePrefs } from './prefs.ts';
+import { HL_COLORS, MAX_PRESETS, PEN_COLORS, applySyncedPresets, loadPrefs, presetsJson, savePrefs, syncedPresets } from './prefs.ts';
 import type { EraserMode, Prefs, TouchMode } from './prefs.ts';
 import { Renderer } from './renderer.ts';
 import { UI } from './ui.ts';
@@ -64,7 +64,10 @@ export class App {
     new ResizeObserver(() => this.onResize(stage.clientWidth, stage.clientHeight)).observe(stage);
     this.onResize(stage.clientWidth, stage.clientHeight);
 
-    const flush = () => this.flushSave();
+    const flush = () => {
+      this.flushSave();
+      this.pushSettings();
+    };
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') flush();
     });
@@ -81,6 +84,7 @@ export class App {
 
   private onHostUpdate(): void {
     this.readOnly = this.host.locked;
+    this.pullSettings();
     const text = this.host.text;
     if (this.loaded && text === this.lastText) {
       this.ui.refresh();
@@ -216,7 +220,43 @@ export class App {
 
   private savePrefs(): void {
     savePrefs(this.prefs);
+    this.queueSettingsSync();
     this.ui.refresh();
+  }
+
+  // ---------------------------------------------------------------- synced settings (presets)
+
+  private settingsPulled = false;
+  private settingsJson = '';
+  private settingsTimer = 0;
+
+  /** First time the host answers: adopt the presets saved with the plugin (shared by all notes and devices). */
+  private pullSettings(): void {
+    if (this.settingsPulled) return;
+    this.settingsPulled = true;
+    if (applySyncedPresets(this.prefs, this.host.readSettings())) {
+      savePrefs(this.prefs); // local copy only; nothing to write back
+      this.updateBlend();
+    }
+    this.settingsJson = presetsJson(this.prefs);
+  }
+
+  /** Presets are written to the synced settings shortly after they change (never just for opening a note). */
+  private queueSettingsSync(): void {
+    if (!this.settingsPulled || this.host.standalone) return;
+    if (presetsJson(this.prefs) === this.settingsJson) return;
+    window.clearTimeout(this.settingsTimer);
+    this.settingsTimer = window.setTimeout(() => this.pushSettings(), 500);
+  }
+
+  private pushSettings(): void {
+    window.clearTimeout(this.settingsTimer);
+    if (!this.settingsPulled || this.host.standalone) return;
+    const json = presetsJson(this.prefs);
+    if (json === this.settingsJson) return;
+    // keep whatever else is stored there
+    this.host.writeSettings({ ...(this.host.readSettings() ?? {}), presets: syncedPresets(this.prefs) });
+    this.settingsJson = json;
   }
 
   setTool(t: Tool): void {
@@ -270,13 +310,6 @@ export class App {
     p.tool = kind;
     this.updateBlend();
     this.savePrefs();
-  }
-
-  /** Tapping the already-selected pen / highlighter tool steps to its next preset. */
-  cyclePreset(kind: 'pen' | 'highlighter'): void {
-    const p = this.prefs;
-    const n = kind === 'pen' ? p.penPresets.length : p.hlPresets.length;
-    this.selectPreset(kind, ((kind === 'pen' ? p.penIdx : p.hlIdx) + 1) % n);
   }
 
   /** Adds a preset (max MAX_PRESETS), based on the current one with the next unused colour, and selects it. */

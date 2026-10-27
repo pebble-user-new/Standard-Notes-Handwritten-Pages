@@ -38,10 +38,9 @@ Once installed on the web or desktop app the plugin syncs to your other devices 
 | `+` in the top bar | Add a page after the current one |
 | Page icon in the top bar | Paper style, spacing, colour, duplicate / delete page |
 | `⋯` in the top bar | Touch mode, save the page as an image, fit page |
-| Tap a dot in the preset row | Pick that pen / highlighter preset |
-| Tap the selected preset again, or the colour dot at the bottom right | Colour and size for that preset (and *Remove this preset*) |
-| `+` next to the pens / highlighters | Add a preset (up to six each) |
-| Tap the selected Pen or Highlighter tool again | Step to its next preset |
+| Tap a dot in the preset row | Pick that pen / highlighter preset (tapping the selected one again does nothing) |
+| Tap the Pen / Highlighter button, or the colour dot at the bottom right | Colour and size for the selected preset (and *Remove this preset*); tap again to close |
+| `+` next to the pens / highlighters | Add a preset (up to six each) and open its colour and size |
 | Double-tap with a finger | Focus mode on / off |
 | Single tap in focus mode | Show / hide the toolbars as an overlay |
 
@@ -57,7 +56,7 @@ Desktop: mouse draws; scroll wheel pans; ctrl/⌘+wheel or trackpad pinch zooms;
 
 The note text is JSON (`"app":"sn-handwritten-pages"`). Coordinates are in points on the page (A4 is 595 × 842), in tenths of a point, delta-encoded; strokes are simplified (Ramer–Douglas–Peucker, 0.12 pt) before saving. A page of dense handwriting is typically tens of KB. Opening a note never changes it; the first edit writes it. A4 notebooks are written as format `v:1`; A5 / A6 notebooks as `v:2` with a `sz` field, so an older cached copy of the plugin refuses them ("newer notebook format") instead of opening them as A4 and overwriting them. See `src/codec.ts` for the format. The note preview in the list reads "Handwritten notebook · N pages".
 
-Per-device settings (current tool, pen and highlighter presets, sizes, touch mode) are kept in the browser's `localStorage`, not in the note, so they never dirty a note.
+The pen and highlighter **presets are saved with the plugin's own synced settings** in Standard Notes (the plugin's `extensionMeta` / component data), so they follow you to your other devices and are shared by all your notes, without touching any note's text. They are written a moment after you change them, never just for opening a note. (A browser copy is kept as a fallback.) Everything else per device (current tool and selected preset, sizes, touch mode) is kept in the browser's `localStorage`, so it never dirties a note.
 
 ## Development
 

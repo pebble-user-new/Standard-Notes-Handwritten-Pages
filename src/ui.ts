@@ -97,11 +97,8 @@ export class UI {
     // ---- bottom bar
     const mkTool = (id: 'pen' | 'highlighter' | 'eraser', icon: string, label: string) => {
       const b = iconButton(icon, label, () => {
-        if (app.prefs.tool === id) {
-          // the selected pen / highlighter steps to its next preset; the eraser opens its options
-          if (id === 'eraser') this.togglePopover('ink');
-          else app.cyclePreset(id);
-        } else {
+        if (app.prefs.tool === id) this.togglePopover('ink');
+        else {
           app.setTool(id);
           if (this.popKind === 'ink') this.renderPopover();
         }
@@ -207,10 +204,9 @@ export class UI {
         dot.style.background = pr.color;
         b.append(dot);
         b.disabled = !app.canEdit;
-        // tapping the selected preset opens its colour / size options
+        // a plain toggle: tap to select (tapping the selected one again does nothing); the Pen / Highlighter button opens the options
         b.addEventListener('click', () => {
-          if (active) this.togglePopover('ink');
-          else app.selectPreset(kind, i);
+          if (!active) app.selectPreset(kind, i);
         });
         group.append(b);
       });

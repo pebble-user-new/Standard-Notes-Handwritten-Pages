@@ -141,6 +141,37 @@ export function loadPrefs(): Prefs {
   }
 }
 
+/** The presets as JSON (what gets synced); used to tell whether they changed. */
+export function presetsJson(p: Prefs): string {
+  return JSON.stringify({ pen: p.penPresets, hl: p.hlPresets });
+}
+
+/** Presets in the shape stored in the plugin's synced settings. */
+export function syncedPresets(p: Prefs): { v: number; pen: Preset[]; hl: Preset[] } {
+  return { v: 1, pen: p.penPresets.map((x) => ({ ...x })), hl: p.hlPresets.map((x) => ({ ...x })) };
+}
+
+/**
+ * Adopts presets read from the synced settings (validated; anything unusable is ignored).
+ * The selected slot stays per device but is kept in range. Returns true when something changed.
+ */
+export function applySyncedPresets(p: Prefs, settings: Record<string, unknown> | null): boolean {
+  const raw = settings?.presets as { pen?: unknown; hl?: unknown } | undefined;
+  if (!raw || typeof raw !== 'object') return false;
+  const before = presetsJson(p);
+  const pen = cleanPresets(raw.pen);
+  const hl = cleanPresets(raw.hl);
+  if (pen) p.penPresets = pen;
+  if (hl) p.hlPresets = hl;
+  p.penIdx = Math.min(p.penIdx, p.penPresets.length - 1);
+  p.hlIdx = Math.min(p.hlIdx, p.hlPresets.length - 1);
+  p.penColor = p.penPresets[p.penIdx].color;
+  p.penWidth = p.penPresets[p.penIdx].width;
+  p.hlColor = p.hlPresets[p.hlIdx].color;
+  p.hlWidth = p.hlPresets[p.hlIdx].width;
+  return presetsJson(p) !== before;
+}
+
 export function savePrefs(p: Prefs): void {
   try {
     localStorage.setItem(KEY, JSON.stringify({ ...p, v: PREFS_VERSION }));
