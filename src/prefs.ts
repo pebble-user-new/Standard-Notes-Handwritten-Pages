@@ -29,6 +29,8 @@ export interface Prefs {
    */
   touch: TouchMode;
   penSeen: boolean;
+  /** ignore palms: touches while a stylus is near or down, and very large contact areas */
+  palm: boolean;
   /** quick-pick presets (3 to start with, up to MAX_PRESETS); the selected one mirrors penColor/penWidth etc. */
   penPresets: Preset[];
   hlPresets: Preset[];
@@ -81,6 +83,7 @@ export function defaultPrefs(): Prefs {
     eraserMode: 'split',
     touch: 'scroll',
     penSeen: false,
+    palm: true,
     penPresets: DEFAULT_PEN_PRESETS.map((p) => ({ ...p })),
     hlPresets: DEFAULT_HL_PRESETS.map((p) => ({ ...p })),
     penIdx: 0,
@@ -131,6 +134,7 @@ export function loadPrefs(): Prefs {
       eraserMode: o.eraserMode === 'stroke' ? 'stroke' : 'split',
       touch: migrate ? 'scroll' : o.touch === 'draw' || o.touch === 'auto' ? o.touch : 'scroll',
       penSeen: o.penSeen === true,
+      palm: o.palm !== false,
       penPresets,
       hlPresets,
       penIdx,

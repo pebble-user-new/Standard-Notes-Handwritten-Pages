@@ -169,10 +169,11 @@ async function open(label, { mobile = true, query = 'fresh=1', width = 390, heig
       await send('mouseReleased', pts[pts.length - 1], 0);
       await sleep(40);
     },
-    touch: async (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((p, i) => ({ x: p.x, y: p.y, id: p.id ?? i, radiusX: 4, radiusY: 4, force: 0.5 })) }),
-    touchStroke: async (pts) => {
-      await h.touch('touchStart', [pts[0]]);
-      for (const p of pts.slice(1)) {
+    touch: async (type, points) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((p, i) => ({ x: p.x, y: p.y, id: p.id ?? i, radiusX: p.r ?? 4, radiusY: p.r ?? 4, force: 0.5 })) }),
+    touchStroke: async (pts, r) => {
+      const pp = r ? pts.map((q) => ({ ...q, r })) : pts;
+      await h.touch('touchStart', [pp[0]]);
+      for (const p of pp.slice(1)) {
         await h.touch('touchMove', [p]);
         await sleep(8);
       }
@@ -625,7 +626,7 @@ try {
     check('toolbars do not appear until the double-tap window has passed', !(await vis()).bottom);
     await sleep(600);
     v = await vis();
-    check('a single tap brings up the page toolbar and the bottom bar', v.top && v.tray && v.presets && v.bottom, JSON.stringify(v));
+    check('a single tap brings up the bottom bar only (not the top toolbar)', !v.top && v.tray && v.presets && v.bottom, JSON.stringify(v));
     const stack = await t.frame.evaluate(() => {
       const p = document.querySelector('.bar.presets').getBoundingClientRect();
       const b = document.querySelector('.bar.bottom').getBoundingClientRect();
@@ -634,42 +635,44 @@ try {
     check('...the preset row moves up and the bottom bar sits under it at the screen edge', stack.presetsBottom <= stack.bottomTop + 1 && Math.abs(stack.bottomBottom - stack.vh) < 2, JSON.stringify(stack));
     check('...as an overlay: the page does not resize or jump', (await stageH()) === hFocus && Math.abs((await t.state()).ratio - 1) < 0.02);
     // the overlay is usable
-    await t.frame.click('button[aria-label="Add page after this one"]');
+    await t.frame.click('button[aria-label="Add page"]');
     await sleep(400);
     check('overlay buttons work (add page)', (await t.state()).pages === 2);
-    // opening a popover keeps clear of the overlaid bars
-    await t.frame.click('button[aria-label="Page style"]');
+    // the colour panel opens clear of the overlaid bottom bar
+    await t.frame.click('button[aria-label="Pen"]');
+    await sleep(150);
     const geo = await t.frame.evaluate(() => {
-      const p = document.querySelector('.pop.page').getBoundingClientRect();
-      const b = document.querySelector('.bar.top').getBoundingClientRect();
-      return { popTop: p.top, barBottom: b.bottom };
+      const p = document.querySelector('.pop.ink').getBoundingClientRect();
+      const r = document.querySelector('.bar.presets').getBoundingClientRect();
+      return { popBottom: p.bottom, presetsTop: r.top };
     });
-    check('popovers sit below the overlaid toolbar', geo.popTop >= geo.barBottom - 1, JSON.stringify(geo));
-    await t.frame.click('button[aria-label="Page style"]');
+    check('the colour panel sits above the preset row and bottom bar', geo.popBottom <= geo.presetsTop + 1, JSON.stringify(geo));
+    await t.frame.click('button[aria-label="Pen"]');
     // another single tap hides them again
     const c2 = await t.toScreen(300, 400);
     await tapAt(c2.x, c2.y);
     await sleep(700);
     v = await vis();
-    check('a second single tap hides them again (the preset row stays)', (await t.state()).focus && !v.top && !v.bottom && v.presets, JSON.stringify(v));
+    check('a second single tap hides the bottom bar again (the preset row stays)', (await t.state()).focus && !v.top && !v.bottom && v.presets, JSON.stringify(v));
     // pen use hides a peeked toolbar by itself
     await tapAt(c2.x, c2.y);
     await sleep(700);
-    check('toolbars are back', (await vis()).bottom);
+    check('the bottom bar is back', (await vis()).bottom);
     const a = await t.toScreen(100, 250);
     const b = await t.toScreen(300, 280);
     await t.penStroke(line(a.x, a.y, b.x, b.y, 8), Array(8).fill(0.5));
     await sleep(500);
     v = await vis();
     check('starting to write with the pen tucks the toolbars away', !v.bottom && !v.top && v.presets && (await t.state()).strokes[(await t.state()).cur] === 1, JSON.stringify(v));
-    // double-tap exits focus: toolbars are in the layout again
+    // double-tap exits focus: toolbars are in the layout again (after the palm-rejection window that follows pen use)
+    await sleep(900);
     await tapAt(c2.x, c2.y);
     await sleep(120);
     await tapAt(c2.x, c2.y);
     await sleep(500);
     s = await t.state();
     v = await vis();
-    check('double-tap leaves focus mode and restores the toolbars', !s.focus && v.top && v.bottom, JSON.stringify({ s: s.focus, v }));
+    check('double-tap leaves focus mode and restores the top toolbar and bottom bar', !s.focus && v.top && v.bottom, JSON.stringify({ s: s.focus, v }));
     check('...and browser fullscreen is released', !(await t.ev(() => !!document.fullscreenElement)));
     // leaving browser fullscreen by itself (Esc / swipe) also leaves focus mode
     if (fs) {
@@ -897,6 +900,178 @@ try {
     check('invalid synced presets fall back to the local ones', rb.pen === 3 && rb.hl === 3, JSON.stringify(rb));
     check('no script errors', bad.errors.length === 0, JSON.stringify(bad.errors));
     await bad.close();
+  }
+
+  // ------------------------------------------------------------------ 4a9. swiping on from the last page offers a new one
+  {
+    const t = await open('swipe past the last page');
+    const toastText = () => t.frame.evaluate(() => (document.querySelector('.toast.hidden') ? '' : document.querySelector('.toast')?.textContent || ''));
+    await t.click('button[aria-label="Add page after this one"]');
+    await sleep(500);
+    await t.click('button[aria-label="Previous page"]');
+    await sleep(500);
+    let s = await t.state();
+    check('two pages, on the first', s.pages === 2 && s.cur === 0);
+    await t.touchStroke(line(320, 400, 60, 400, 8));
+    await sleep(500);
+    s = await t.state();
+    check('swiping on a middle page just turns it, with no offer', s.cur === 1 && (await toastText()) === '', `${JSON.stringify(s)} / ${await toastText()}`);
+    // now on the last page: swipe on
+    await t.touchStroke(line(320, 400, 60, 400, 8));
+    await sleep(600);
+    s = await t.state();
+    const txt = await toastText();
+    check('swiping on from the last page stays put', s.cur === 1 && s.pages === 2, JSON.stringify(s));
+    check('...and offers "Add page"', /last page/i.test(txt) && /Add page/.test(txt), txt);
+    await t.shot('13-last-page-offer');
+    await t.frame.click('.toast button');
+    await sleep(500);
+    s = await t.state();
+    check('tapping Add page adds one and goes to it', s.pages === 3 && s.cur === 2, JSON.stringify(s));
+    check('...and the offer goes away', (await toastText()) === '');
+    // the keyboard / next action at the end gives the same offer
+    await t.ev(() => window.__hp.nextPage());
+    await sleep(300);
+    check('"next page" on the last page also offers a new one', /Add page/.test(await toastText()));
+    // locked notes can't grow
+    await t.page.evaluate(() => window.mock.setLocked(true));
+    await sleep(300);
+    await t.ev(() => window.__hp.ui.toast('x'));
+    await t.ev(() => window.__hp.nextPage());
+    await sleep(200);
+    check('a locked note gets no offer', !/Add page/.test(await toastText()));
+    check('no script errors', t.errors.length === 0, JSON.stringify(t.errors));
+    await t.close();
+  }
+
+  // ------------------------------------------------------------------ 4a10. palm rejection
+  {
+    const t = await open('palm rejection');
+    await t.click('button[aria-label="Add page after this one"]');
+    await sleep(500);
+    await t.click('button[aria-label="Previous page"]');
+    await sleep(500);
+    const swipe = async (r) => {
+      await t.touchStroke(line(320, 400, 60, 400, 8), r);
+      await sleep(500);
+      return t.state();
+    };
+    const hover = async (x, y) => t.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0, pointerType: 'pen' });
+    let s = await t.state();
+    check('palm rejection is on by default', await t.ev(() => window.__hp.prefs.palm === true));
+    // 1. contact size
+    s = await swipe(45);
+    check('a very large contact patch is ignored (no page turn)', s.cur === 0 && Math.abs(s.ratio - 1) < 0.02, JSON.stringify(s));
+    s = await swipe(5);
+    check('a normal fingertip still works', s.cur === 1, JSON.stringify(s));
+    await t.click('button[aria-label="Previous page"]');
+    await sleep(500);
+    // 2. stylus hovering close by
+    await hover(200, 300);
+    await sleep(100);
+    s = await swipe();
+    check('touches are ignored while the stylus hovers over the screen', s.cur === 0, JSON.stringify(s));
+    await sleep(900);
+    s = await swipe();
+    check('...and work again shortly after it has gone', s.cur === 1, JSON.stringify(s));
+    await t.click('button[aria-label="Previous page"]');
+    await sleep(500);
+    // 3. a palm resting down just after writing
+    const a = await t.toScreen(100, 200);
+    const b = await t.toScreen(300, 230);
+    await t.penStroke(line(a.x, a.y, b.x, b.y, 8), Array(8).fill(0.5));
+    s = await swipe();
+    check('a palm landing right after a stylus stroke is ignored', s.cur === 0 && s.strokes[0] === 1, JSON.stringify(s));
+    await sleep(900);
+    // 4. the palm is already on the screen when the pen arrives
+    await t.touch('touchStart', [{ x: 250, y: 500, r: 5 }]);
+    await t.touch('touchMove', [{ x: 220, y: 500, r: 5 }]);
+    await sleep(60);
+    const c = await t.toScreen(100, 300);
+    const d = await t.toScreen(300, 330);
+    await t.penStroke(line(c.x, c.y, d.x, d.y, 8), Array(8).fill(0.5));
+    await t.touch('touchMove', [{ x: 120, y: 500, r: 5 }]);
+    await t.touch('touchEnd', []);
+    await sleep(500);
+    s = await t.state();
+    check('the stylus wins over a finger or palm that was already scrolling', s.strokes[0] === 2 && s.cur === 0 && Math.abs(s.ratio - 1) < 0.02, JSON.stringify(s));
+    await sleep(900);
+    // 5. the setting
+    await t.click('button[aria-label="More"]');
+    check('palm rejection has a switch in the menu', await t.frame.isVisible('.pop.menu input[aria-label="Palm rejection"]'));
+    await t.frame.click('.pop.menu input[aria-label="Palm rejection"]');
+    check('...which turns it off', (await t.ev(() => window.__hp.prefs.palm)) === false);
+    await t.frame.click('.stage', { position: { x: 5, y: 5 }, force: true }).catch(() => {});
+    await sleep(200);
+    s = await swipe(45);
+    check('with it off, a large contact is treated as a finger', s.cur === 1, JSON.stringify(s));
+    check('no script errors', t.errors.length === 0, JSON.stringify(t.errors));
+    await t.close();
+  }
+
+  // ------------------------------------------------------------------ 4a11. two-finger tap = undo, three-finger tap = redo
+  {
+    const t = await open('two-finger tap undoes, three-finger tap redoes');
+    for (let i = 0; i < 3; i++) {
+      const a = await t.toScreen(80, 200 + i * 60);
+      const b = await t.toScreen(300, 215 + i * 60);
+      await t.penStroke(line(a.x, a.y, b.x, b.y, 8), Array(8).fill(0.5));
+      await sleep(100);
+    }
+    await sleep(900); // past the palm-rejection window that follows pen use
+    const strokes = async () => (await t.state()).strokes[0];
+    check('three strokes drawn', (await strokes()) === 3);
+    const F = (n, r = 5) => [{ x: 120, y: 400, id: 1, r }, { x: 200, y: 420, id: 2, r }, { x: 280, y: 400, id: 3, r }].slice(0, n);
+    const tapN = async (n, hold = 70) => {
+      await t.touch('touchStart', F(n));
+      await sleep(hold);
+      await t.touch('touchEnd', []);
+      await sleep(300);
+    };
+    await tapN(2);
+    check('a two-finger tap undoes the last stroke', (await strokes()) === 2, String(await strokes()));
+    await tapN(2);
+    check('...and again', (await strokes()) === 1);
+    await tapN(3);
+    check('a three-finger tap redoes', (await strokes()) === 2, String(await strokes()));
+    await tapN(3);
+    check('...and again', (await strokes()) === 3);
+    await tapN(3);
+    check('redo with nothing to redo does nothing', (await strokes()) === 3 && t.errors.length === 0);
+    let s = await t.state();
+    check('taps do not zoom, scroll or toggle focus', Math.abs(s.ratio - 1) < 0.02 && s.cur === 0 && !s.focus, JSON.stringify(s));
+    // two quick two-finger taps are two undos, not a focus-mode double-tap
+    await tapN(2, 50);
+    await tapN(2, 50);
+    s = await t.state();
+    check('two two-finger taps in a row undo twice and do not toggle focus', s.strokes[0] === 1 && !s.focus, JSON.stringify(s));
+    // a slow press is not a tap
+    await tapN(2, 700);
+    check('a long two-finger press does nothing', (await strokes()) === 1);
+    // a two-finger swipe is not a tap
+    await t.twoFinger({ x: 150, y: 500 }, { x: 210, y: 500 }, { x: 150, y: 560 }, { x: 210, y: 560 }, 8);
+    check('a two-finger drag does not undo', (await strokes()) === 1);
+    // a pinch is not a tap
+    await t.twoFinger({ x: 150, y: 500 }, { x: 210, y: 500 }, { x: 100, y: 500 }, { x: 260, y: 500 }, 8, 40);
+    check('a pinch does not undo', (await strokes()) === 1);
+    // the undo toast
+    await t.click('button[aria-label="Redo"]');
+    await tapN(2, 60);
+    check('a tap shows a brief "Undo" message', await t.frame.evaluate(() => /Undo/.test(document.querySelector('.toast')?.textContent || '')));
+    // fingers-draw mode: still no stray ink
+    await t.ev(() => window.__hp.setTouchMode('draw'));
+    const before = await strokes();
+    await tapN(2, 70);
+    await tapN(3, 70);
+    check('with fingers drawing, the multi-finger taps leave no dots', (await strokes()) === before, `${before} -> ${await strokes()}`);
+    // locked note
+    await t.page.evaluate(() => window.mock.setLocked(true));
+    await sleep(250);
+    const n0 = await strokes();
+    await tapN(2, 70);
+    check('a locked note ignores them', (await strokes()) === n0);
+    check('no script errors', t.errors.length === 0, JSON.stringify(t.errors));
+    await t.close();
   }
 
   // ------------------------------------------------------------------ 4b. zoomed in: sideways scroll settles on one page

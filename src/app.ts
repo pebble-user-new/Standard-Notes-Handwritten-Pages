@@ -204,7 +204,32 @@ export class App {
   }
 
   nextPage(): void {
+    if (this.curPage() >= this.nb.pages.length - 1) {
+      this.offerNewPage();
+      return;
+    }
     this.goToPage(this.curPage() + 1);
+  }
+
+  /** Two-finger tap: undo, with a brief confirmation. */
+  undoTap(): void {
+    if (!this.history.canUndo) return;
+    this.undo();
+    this.ui.toast('Undo', undefined, undefined, 700);
+  }
+
+  /** Three-finger tap: redo. */
+  redoTap(): void {
+    if (!this.history.canRedo) return;
+    this.redo();
+    this.ui.toast('Redo', undefined, undefined, 700);
+  }
+
+  /** Asked for a page after the last one (swipe, arrow, key): offer to add it. */
+  offerNewPage(): void {
+    if (!this.canEdit) return;
+    const last = this.nb.pages.length - 1;
+    this.ui.toast('This is the last page', 'Add page', () => this.insertPageAfter(last), 5000);
   }
 
   prevPage(): void {
@@ -343,6 +368,11 @@ export class App {
 
   setTouchMode(m: TouchMode): void {
     this.prefs.touch = m;
+    this.savePrefs();
+  }
+
+  setPalm(on: boolean): void {
+    this.prefs.palm = on;
     this.savePrefs();
   }
 

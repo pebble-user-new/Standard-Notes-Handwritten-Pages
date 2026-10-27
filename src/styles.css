@@ -199,16 +199,10 @@ body {
 
 /* ---------- focus mode ---------- */
 /* The top bar and the bottom bar (tools, undo/redo, add page) leave the layout; the preset row stays.
-   A single tap slides them back over the page: the top bar from above, the bottom bar from below the
-   preset row, which moves up to make room (so the page never resizes or jumps). */
+   A single tap slides the bottom bar back in from below the preset row, which moves up to make room
+   (so the page never resizes or jumps). The top bar only returns when focus mode is left. */
 .hp-app.focus .bar.top {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  transform: translateY(-110%);
-  transition: transform 0.18s ease;
-  box-shadow: var(--hp-shadow);
+  display: none;
 }
 .hp-app.focus .bar.bottom {
   position: absolute;
@@ -220,24 +214,16 @@ body {
 .hp-app.focus .tray {
   transition: transform 0.18s ease;
 }
-.hp-app.focus.peek .bar.top {
-  transform: none;
-}
 .hp-app.focus.peek .tray {
   transform: translateY(calc(-1 * var(--bot-h, 52px)));
   box-shadow: var(--hp-shadow);
 }
-.hp-app.focus:not(.peek) .bar.top,
 .hp-app.focus:not(.peek) .bar.bottom {
   visibility: hidden;
-  transition: transform 0.18s ease, visibility 0s 0.18s;
+  transition: visibility 0s 0.18s;
 }
 .hp-app.focus.peek .pop.ink {
   bottom: calc(var(--bot-h, 0px) + 8px);
-}
-.hp-app.focus.peek .pop.page,
-.hp-app.focus.peek .pop.menu {
-  top: calc(var(--top-h, 0px) + 8px);
 }
 
 /* ---------- stage ---------- */

@@ -133,17 +133,14 @@ export class UI {
     this.closePopovers();
     this.root.classList.toggle('focus', on);
     this.root.classList.remove('peek');
-    if (on) this.toast('Focus mode · tap for tools · double-tap to exit', undefined, undefined, 2600);
+    if (on) this.toast('Focus mode · tap for the tool bar · double-tap to exit', undefined, undefined, 2600);
   }
 
-  /** In focus mode: show the toolbars as an overlay (or hide them again). */
+  /** In focus mode: show the bottom bar (tools, undo/redo, add page) as an overlay, or hide it again. */
   setPeek(on: boolean): void {
     this.closePopovers();
-    if (on) {
-      // popovers are positioned clear of the overlaid bars
-      this.root.style.setProperty('--top-h', `${this.top.offsetHeight}px`);
-      this.root.style.setProperty('--bot-h', `${this.bottomBar.offsetHeight}px`);
-    }
+    // the ink panel is positioned clear of the overlaid bottom bar
+    if (on) this.root.style.setProperty('--bot-h', `${this.bottomBar.offsetHeight}px`);
     this.root.classList.toggle('peek', on);
   }
 
@@ -473,6 +470,12 @@ export class UI {
             : 'One finger draws; two fingers pinch to zoom and swipe to turn pages.',
       ),
     );
+    const palmRow = h('label', 'check');
+    const palmBox = h('input', undefined, { type: 'checkbox', 'aria-label': 'Palm rejection' });
+    palmBox.checked = app.prefs.palm;
+    palmBox.addEventListener('change', () => app.setPalm(palmBox.checked));
+    palmRow.append(palmBox, h('span', undefined, undefined, 'Palm rejection'));
+    pop.append(palmRow, h('p', 'muted small', undefined, 'Ignores touches while the stylus is touching or hovering close to the screen, and touches with a very large contact area.'));
     const img = h('button', 'row', { type: 'button' });
     img.innerHTML = `${ICON.image}<span>Save this page as an image</span>`;
     img.addEventListener('click', () => {

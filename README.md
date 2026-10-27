@@ -7,7 +7,7 @@ A paper-notebook style handwriting editor for [Standard Notes](https://standardn
 - **Swipe sideways** to turn the page, or use the arrows, the page counter (all-pages overview) or the keyboard
 - **Pen, highlighter and eraser** (rub-out or whole-stroke), pressure-sensitive with a stylus, undo / redo
 - **Presets:** a row of quick-pick pens (left) and highlighters (right), three of each to start with and up to six, with the eraser in the middle. The bottom bar has the Pen and Highlighter buttons, undo / redo in the centre and an add-page button on the right. Pen colours come in 7 hues (including cyan), each with two lighter shades (orange's lightest is yellow)
-- **Focus mode:** double-tap with a finger to hide the top toolbar and the bottom bar (the preset row stays, and the browser is asked for fullscreen); a single tap brings the toolbars back over the page
+- **Focus mode:** double-tap with a finger to hide the top toolbar and the bottom bar (the preset row stays, and the browser is asked for fullscreen); a single tap brings the bottom bar back over the page (the top toolbar returns when you leave focus mode)
 - **Everything lives in one note**, stored as compact text, so it syncs, encrypts and backs up like any other note
 - Follows your Standard Notes theme (light / dark); the paper stays paper-coloured
 
@@ -42,10 +42,15 @@ Once installed on the web or desktop app the plugin syncs to your other devices 
 | Tap the selected Pen / Highlighter button (bottom bar) or Eraser | Colour and size (or eraser options) for the selected preset, plus *Remove this preset*; tap again to close |
 | `+` next to the pens / highlighters | Add a preset (up to six each) and open its colour and size |
 | Double-tap with a finger | Focus mode on / off |
-| Single tap in focus mode | Show / hide the top toolbar and the bottom bar as an overlay |
+| Single tap in focus mode | Show / hide the bottom bar (tools, undo / redo, add page) as an overlay |
+| Tap with two fingers | Undo |
+| Tap with three fingers | Redo |
+| Swipe on from the last page | Offers *Add page* (also the arrow key / Next at the end) |
 | Page icon on the bottom bar | Add a page after the current one |
 
 **Touch mode** (menu): *Pen only* (the default) means only a stylus or mouse draws; fingers scroll, zoom and turn pages. *Auto* lets fingers draw until a stylus has been used on this device, after which only the pen draws. *Fingers draw* always lets fingers draw. A quick finger tap never leaves a dot, so double-tapping is safe in every mode.
+
+**Palm rejection** (menu, on by default): touches are ignored while the stylus is touching or hovering near the screen (and for a moment afterwards), when a very large contact patch lands (about 10 mm or more), and a palm that is already scrolling is dropped the moment the stylus comes down. The contact-size and hover thresholds are guesses tuned in a headless browser, not on real hardware: if it ignores real fingers (or lets a palm through) on your device, say so and the numbers can be adjusted.
 
 **Paper size** (page-style panel): A4 (595 × 842 pt), A5 (420 × 595 pt) or A6 (298 × 420 pt). The size applies to the whole notebook; changing it scales your existing writing to fit, and Undo puts it back. **Taller paper** (Standard, +50 %, +75 %, +100 %) lengthens every page and keeps its width, with any size (A6 + 50 % is 105 × 222 mm, close to the DL envelope size). Your writing is left alone; making the paper shorter again only hides what is below the new bottom edge, and making it taller brings it back.
 

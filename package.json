@@ -1,6 +1,6 @@
 {
   "name": "sn-handwritten-pages",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Standard Notes editor plugin: a handwritten paper notebook (A4 pages, lined/grid/dotted/blank, pinch-zoom, swipe between pages) stored in a single note.",
   "license": "MIT",

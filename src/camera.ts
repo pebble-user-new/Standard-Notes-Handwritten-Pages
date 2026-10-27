@@ -118,6 +118,8 @@ export class Camera {
         if (vx < -FLICK_SPEED || offset > TURN_FRACTION * vp.vw) target = startPage + 1;
         else if (vx > FLICK_SPEED || offset < -TURN_FRACTION * vp.vw) target = startPage - 1;
       }
+      // swiping on from the last page: it stays put, but offer a new one
+      if (target > vp.pages - 1) this.app.offerNewPage();
       target = Math.max(0, Math.min(vp.pages - 1, target));
       this.animateTo(vp.viewFor(target), 260);
       return;

@@ -15,6 +15,8 @@ interface Ptr {
   startY: number;
   startT: number;
   ignored: boolean;
+  /** a resting palm: never counts for anything, not even multi-finger taps */
+  palm?: boolean;
 }
 
 interface Sample {
@@ -30,6 +32,13 @@ const TAP_MS = 300;
 /** two quick finger taps this close in time and place toggle focus mode */
 const DOUBLE_TAP_MS = 380;
 const DOUBLE_TAP_PX = 48;
+/** touches this soon after the stylus was last near the screen are treated as the resting palm */
+const PEN_NEAR_MS = 700;
+/** a touch whose contact patch is at least this big (CSS px, about 10 mm) is a palm, not a finger */
+const PALM_CONTACT_PX = 64;
+/** a two- / three-finger tap: all fingers down and up within this time, barely moving */
+const MULTI_TAP_MS = 400;
+const MULTI_TAP_MOVE_PX = 14;
 
 export class Input {
   private ptrs = new Map<number, Ptr>();
@@ -44,6 +53,9 @@ export class Input {
   private wheelAccum = 0;
   private lastTap = { t: 0, x: 0, y: 0 };
   private wheelCooldown = 0;
+  private lastPenT = -1e9;
+  /** the current run of touches: when it began, the most fingers down together, how far any moved */
+  private multi = { t: 0, n: 0, moved: 0 };
 
   private app: App;
   private el: HTMLElement;
@@ -76,9 +88,30 @@ export class Input {
 
   // ------------------------------------------------------------------ pointer events
 
+  /** Is this touch a resting palm (or a knuckle) rather than a finger? */
+  private isPalm(e: PointerEvent): boolean {
+    if (e.pointerType !== 'touch' || !this.app.prefs.palm) return false;
+    if (Math.max(e.width, e.height) >= PALM_CONTACT_PX) return true;
+    const penDown = [...this.ptrs.values()].some((q) => q.type === 'pen');
+    return penDown || performance.now() - this.lastPenT < PEN_NEAR_MS;
+  }
+
   private down(e: PointerEvent): void {
     if (e.pointerType === 'mouse' && e.button > 2) return;
+    if (e.pointerType === 'pen') this.lastPenT = performance.now();
     const app = this.app;
+    if (this.isPalm(e)) {
+      // swallow it: it never draws, pans, pinches or counts as a tap, and stays ignored until it lifts
+      try {
+        this.el.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      e.preventDefault();
+      const { x, y } = this.local(e);
+      this.ptrs.set(e.pointerId, { id: e.pointerId, type: 'touch', x, y, startX: x, startY: y, startT: performance.now(), ignored: true, palm: true });
+      return;
+    }
     app.camera.stop();
     app.ui.closePopovers();
     try {
@@ -91,6 +124,11 @@ export class Input {
     const p: Ptr = { id: e.pointerId, type: e.pointerType, x, y, startX: x, startY: y, startT: performance.now(), ignored: false };
     if (e.pointerType === 'pen') app.notePenSeen();
     this.ptrs.set(p.id, p);
+    if (p.type === 'touch') {
+      const n = this.activeTouches();
+      if (n <= 1) this.multi = { t: performance.now(), n: 1, moved: 0 };
+      else this.multi.n = Math.max(this.multi.n, n);
+    }
 
     switch (this.mode) {
       case 'idle':
@@ -117,7 +155,14 @@ export class Input {
         break;
       }
       case 'pan':
-        if (p.type === 'touch') this.startGesture();
+      case 'gesture':
+        if (p.type === 'pen' && app.prefs.palm) {
+          // the stylus came down while fingers were scrolling: they were a palm, so the pen wins
+          for (const q of this.ptrs.values()) if (q.type === 'touch') q.ignored = true;
+          app.camera.release(0, 0, this.startPage);
+          this.mode = 'idle';
+          this.begin(e, p);
+        } else if (p.type === 'touch' && this.mode === 'pan') this.startGesture();
         else p.ignored = true;
         break;
       default:
@@ -152,6 +197,7 @@ export class Input {
   }
 
   private move(e: PointerEvent): void {
+    if (e.pointerType === 'pen') this.lastPenT = performance.now();
     const p = this.ptrs.get(e.pointerId);
     if (!p) return;
     const app = this.app;
@@ -161,6 +207,7 @@ export class Input {
     const { x, y } = this.local(e);
     p.x = x;
     p.y = y;
+    if (p.type === 'touch' && !p.palm) this.multi.moved = Math.max(this.multi.moved, Math.hypot(x - p.startX, y - p.startY));
     if (p.ignored) return;
 
     switch (this.mode) {
@@ -199,10 +246,12 @@ export class Input {
   }
 
   private up(e: PointerEvent, cancelled: boolean): void {
+    if (e.pointerType === 'pen') this.lastPenT = performance.now();
     const p = this.ptrs.get(e.pointerId);
     if (!p) return;
     this.ptrs.delete(e.pointerId);
     const app = this.app;
+    if (p.type === 'touch' && !p.palm && !cancelled && this.activeTouches() === 0) this.multiTap();
     if (p.ignored) return;
 
     switch (this.mode) {
@@ -210,7 +259,7 @@ export class Input {
         if (p.id === this.mainId) {
           if (cancelled && p.type === 'touch') {
             app.cancelStroke();
-          } else if (!cancelled && this.isFingerTap(p)) {
+          } else if (!cancelled && this.isFingerTap(p) && this.multi.n < 2) {
             // a quick finger tap isn't ink (so a double-tap can't leave dots); two of them toggle focus mode
             app.cancelStroke();
             this.fingerTap(p.x, p.y);
@@ -228,7 +277,7 @@ export class Input {
         break;
       case 'pan':
         if (p.id === this.mainId) {
-          const tap = !cancelled && p.type !== 'pen' && Math.hypot(p.x - p.startX, p.y - p.startY) < TAP_MOVE_PX && performance.now() - p.startT < TAP_MS;
+          const tap = !cancelled && p.type !== 'pen' && this.multi.n < 2 && Math.hypot(p.x - p.startX, p.y - p.startY) < TAP_MOVE_PX && performance.now() - p.startT < TAP_MS;
           if (tap && app.vp.isOverview()) {
             this.tapOverview(p.x, p.y);
           } else {
@@ -263,6 +312,25 @@ export class Input {
     this.mode = 'idle';
     this.mainId = -1;
     for (const q of this.ptrs.values()) q.ignored = true;
+  }
+
+  private activeTouches(): number {
+    let n = 0;
+    for (const q of this.ptrs.values()) if (q.type === 'touch' && !q.palm) n++;
+    return n;
+  }
+
+  /** All fingers just lifted: a quick, still two-finger tap is undo, three fingers is redo. */
+  private multiTap(): void {
+    const m = this.multi;
+    const quick = performance.now() - m.t < MULTI_TAP_MS && m.moved < MULTI_TAP_MOVE_PX;
+    const n = m.n;
+    this.multi = { t: 0, n: 0, moved: 0 };
+    if (!quick || n < 2 || !this.app.canEdit) return;
+    window.clearTimeout(this.tapTimer);
+    this.lastTap = { t: 0, x: 0, y: 0 };
+    if (n === 2) this.app.undoTap();
+    else this.app.redoTap();
   }
 
   private isFingerTap(p: Ptr): boolean {
