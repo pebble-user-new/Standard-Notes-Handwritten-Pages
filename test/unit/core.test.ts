@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decode, encode, FORMAT_VERSION } from '../../src/codec.ts';
-import { eraseFromStroke, segmentInCircle, simplify, strokeHit } from '../../src/geometry.ts';
-import { PAGE_GAP, PAGE_H, PAGE_W, newNotebook, newPage } from '../../src/model.ts';
+import { eraseFromStroke, scaleStroke, segmentInCircle, simplify, strokeHit } from '../../src/geometry.ts';
+import { PAGE_GAP, PAGE_SIZES, newNotebook, newPage } from '../../src/model.ts';
 import type { Notebook, Stroke } from '../../src/model.ts';
 import { Viewport } from '../../src/viewport.ts';
+
+const PAGE_W = PAGE_SIZES.a4.w;
+const PAGE_H = PAGE_SIZES.a4.h;
 
 function line(x0: number, y0: number, x1: number, y1: number, n = 11): Stroke {
   const pts: number[] = [];

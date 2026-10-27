@@ -1,11 +1,13 @@
 # Handwritten Pages for Standard Notes
 
-A paper-notebook style handwriting editor for [Standard Notes](https://standardnotes.com). Each note is a notebook of **A4 pages** you write on with a stylus, finger or mouse.
+A paper-notebook style handwriting editor for [Standard Notes](https://standardnotes.com). Each note is a notebook of **A4, A5 or A6 pages** you write on with a stylus, finger or mouse.
 
-- **Paper:** blank, lined, grid or dotted (narrow / medium / wide spacing; white, cream or grey paper)
+- **Paper:** blank, lined, grid or dotted (narrow / medium / wide spacing; white, cream or grey paper), in **A4, A5 or A6** (pocket-notebook) sizes
 - **Pinch to zoom** in to write small, zoom out to see several pages side by side
 - **Swipe sideways** to turn the page, or use the arrows, the page counter (all-pages overview) or the keyboard
 - **Pen, highlighter and eraser** (rub-out or whole-stroke), pressure-sensitive with a stylus, undo / redo
+- **Presets:** a row of quick-pick pens (left) and highlighters (right), three of each to start with and up to six, with the eraser and undo / redo in the middle. Pen colours come in 7 hues (including cyan), each with two lighter shades (orange's lightest is yellow)
+- **Focus mode:** double-tap with a finger to hide every toolbar (and ask the browser for fullscreen); a single tap brings the toolbars back over the page
 - **Everything lives in one note**, stored as compact text, so it syncs, encrypts and backs up like any other note
 - Follows your Standard Notes theme (light / dark); the paper stays paper-coloured
 
@@ -36,17 +38,26 @@ Once installed on the web or desktop app the plugin syncs to your other devices 
 | `+` in the top bar | Add a page after the current one |
 | Page icon in the top bar | Paper style, spacing, colour, duplicate / delete page |
 | `⋯` in the top bar | Touch mode, save the page as an image, fit page |
-| Tap the active tool again, or the colour dot | Colour and size |
+| Tap a dot in the preset row | Pick that pen / highlighter preset |
+| Tap the selected preset again, or the colour dot at the bottom right | Colour and size for that preset (and *Remove this preset*) |
+| `+` next to the pens / highlighters | Add a preset (up to six each) |
+| Tap the selected Pen or Highlighter tool again | Step to its next preset |
+| Double-tap with a finger | Focus mode on / off |
+| Single tap in focus mode | Show / hide the toolbars as an overlay |
 
-**Touch mode** (menu): *Auto* lets fingers draw until a stylus has been used on this device, after which only the pen draws and fingers scroll and zoom (palm rejection). *Fingers draw* and *Pen only* force one behaviour.
+**Touch mode** (menu): *Pen only* (the default) means only a stylus or mouse draws; fingers scroll, zoom and turn pages. *Auto* lets fingers draw until a stylus has been used on this device, after which only the pen draws. *Fingers draw* always lets fingers draw. A quick finger tap never leaves a dot, so double-tapping is safe in every mode.
 
-Desktop: mouse draws; scroll wheel pans; ctrl/⌘+wheel or trackpad pinch zooms; hold Space or use the middle/right button to pan; `←` `→` / PageUp / PageDown turn pages; `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` undo and redo; `P` `H` `E` pick pen, highlighter, eraser; `0` fits the page.
+**Paper size** (page-style panel): A4 (595 × 842 pt), A5 (420 × 595 pt) or A6 (298 × 420 pt). The size applies to the whole notebook; changing it scales your existing writing to fit, and Undo puts it back.
+
+**Focus mode and Standard Notes' own toolbars:** a plugin cannot hide the app around it. On entering focus mode the plugin asks the browser for fullscreen, which removes the Standard Notes chrome on the web and desktop apps if the app allows it (it cannot on the mobile apps or iPhone); leaving fullscreen with Esc also leaves focus mode.
+
+Desktop: mouse draws; scroll wheel pans; ctrl/⌘+wheel or trackpad pinch zooms; hold Space or use the middle/right button to pan; `←` `→` / PageUp / PageDown turn pages; `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` undo and redo; `P` `H` `E` pick pen, highlighter, eraser; `F` toggles focus mode (Esc leaves it); `0` fits the page.
 
 ## How it is stored
 
-The note text is JSON (`"app":"sn-handwritten-pages"`). Coordinates are in points on an A4 page (595 × 842), in tenths of a point, delta-encoded; strokes are simplified (Ramer–Douglas–Peucker, 0.12 pt) before saving. A page of dense handwriting is typically tens of KB. Opening a note never changes it; the first edit writes it. See `src/codec.ts` for the format. The note preview in the list reads "Handwritten notebook · N pages".
+The note text is JSON (`"app":"sn-handwritten-pages"`). Coordinates are in points on the page (A4 is 595 × 842), in tenths of a point, delta-encoded; strokes are simplified (Ramer–Douglas–Peucker, 0.12 pt) before saving. A page of dense handwriting is typically tens of KB. Opening a note never changes it; the first edit writes it. A4 notebooks are written as format `v:1`; A5 / A6 notebooks as `v:2` with a `sz` field, so an older cached copy of the plugin refuses them ("newer notebook format") instead of opening them as A4 and overwriting them. See `src/codec.ts` for the format. The note preview in the list reads "Handwritten notebook · N pages".
 
-Per-device settings (current tool, colours, sizes, touch mode) are kept in the browser's `localStorage`, not in the note, so they never dirty a note.
+Per-device settings (current tool, pen and highlighter presets, sizes, touch mode) are kept in the browser's `localStorage`, not in the note, so they never dirty a note.
 
 ## Development
 
@@ -66,7 +77,7 @@ npm run build        # production build into dist/ (includes ext.json and latest
 ### Layout
 
 ```
-src/model.ts      A4 page, notebook, stroke types
+src/model.ts      page sizes (A4/A5/A6), notebook, stroke types
 src/codec.ts      compact JSON save format, decode validation
 src/geometry.ts   stroke simplification, eraser splitting
 src/viewport.ts   page strip, zoom / pan / clamp math (pure, unit-tested)
@@ -75,7 +86,8 @@ src/draw.ts       paper patterns and stroke rendering
 src/renderer.ts   base canvas (pages) + live canvas (stroke in progress)
 src/input.ts      pen / touch / mouse / wheel / keyboard handling
 src/app.ts        controller: tools, editing, history, saving, external updates
-src/ui.ts         bars, popovers, overview, toasts
+src/ui.ts         toolbars, preset row, popovers, overview, toasts, focus mode
+src/prefs.ts      per-device preferences, colour palette, presets
 src/host.ts       Standard Notes bridge (sn-extension-api) with a localStorage fallback
 dev/host.html     mock Standard Notes host for local testing
 ```

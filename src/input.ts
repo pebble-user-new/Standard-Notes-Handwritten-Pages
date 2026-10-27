@@ -27,6 +27,9 @@ interface Sample {
 const PINCH_GRACE_MS = 350;
 const TAP_MOVE_PX = 8;
 const TAP_MS = 300;
+/** two quick finger taps this close in time and place toggle focus mode */
+const DOUBLE_TAP_MS = 380;
+const DOUBLE_TAP_PX = 48;
 
 export class Input {
   private ptrs = new Map<number, Ptr>();
@@ -39,6 +42,7 @@ export class Input {
   private startPage = 0;
   private spaceDown = false;
   private wheelAccum = 0;
+  private lastTap = { t: 0, x: 0, y: 0 };
   private wheelCooldown = 0;
 
   private app: App;
@@ -204,8 +208,15 @@ export class Input {
     switch (this.mode) {
       case 'draw':
         if (p.id === this.mainId) {
-          if (cancelled && p.type === 'touch') app.cancelStroke();
-          else app.endStroke();
+          if (cancelled && p.type === 'touch') {
+            app.cancelStroke();
+          } else if (!cancelled && this.isFingerTap(p)) {
+            // a quick finger tap isn't ink (so a double-tap can't leave dots); two of them toggle focus mode
+            app.cancelStroke();
+            this.fingerTap(p.x, p.y);
+          } else {
+            app.endStroke();
+          }
           this.finishSingle();
         }
         break;
@@ -221,6 +232,7 @@ export class Input {
           if (tap && app.vp.isOverview()) {
             this.tapOverview(p.x, p.y);
           } else {
+            if (tap && p.type === 'touch') this.fingerTap(p.x, p.y);
             const v = this.velocity();
             app.camera.release(v.x, v.y, this.startPage);
           }
@@ -251,6 +263,38 @@ export class Input {
     this.mode = 'idle';
     this.mainId = -1;
     for (const q of this.ptrs.values()) q.ignored = true;
+  }
+
+  private isFingerTap(p: Ptr): boolean {
+    return p.type === 'touch' && Math.hypot(p.x - p.startX, p.y - p.startY) < TAP_MOVE_PX && performance.now() - p.startT < TAP_MS;
+  }
+
+  private tapTimer = 0;
+
+  /**
+   * A finger tap: two quick ones toggle focus mode. In focus mode a single tap shows / hides the
+   * toolbars; that waits out the double-tap window so the second tap of a double-tap can never land
+   * on a toolbar button that the first tap just revealed.
+   */
+  private fingerTap(x: number, y: number): void {
+    window.clearTimeout(this.tapTimer);
+    if (this.registerTap(x, y)) {
+      this.app.toggleFocus();
+    } else if (this.app.focus) {
+      this.tapTimer = window.setTimeout(() => this.app.togglePeek(), DOUBLE_TAP_MS);
+    }
+  }
+
+  /** Records a finger tap; true when it completes a double-tap. */
+  private registerTap(x: number, y: number): boolean {
+    const now = performance.now();
+    const t = this.lastTap;
+    if (now - t.t < DOUBLE_TAP_MS && Math.hypot(x - t.x, y - t.y) < DOUBLE_TAP_PX) {
+      this.lastTap = { t: 0, x: 0, y: 0 };
+      return true;
+    }
+    this.lastTap = { t: now, x, y };
+    return false;
   }
 
   private tapOverview(px: number, py: number): void {
@@ -387,6 +431,10 @@ export class Input {
       app.prevPage();
     } else if (!mod && e.key === '0') {
       app.fitPage();
+    } else if (!mod && e.key.toLowerCase() === 'f') {
+      app.toggleFocus();
+    } else if (e.key === 'Escape' && app.focus) {
+      app.setFocus(false);
     } else if (!mod && e.key.toLowerCase() === 'p') {
       app.setTool('pen');
     } else if (!mod && e.key.toLowerCase() === 'h') {

@@ -1,10 +1,25 @@
 // Data model for a handwritten notebook. All coordinates are in PostScript points
-// (1/72 inch) on an A4 portrait page, origin at the page's top-left corner.
+// (1/72 inch) on a portrait page, origin at the page's top-left corner.
 
-export const PAGE_W = 595;
-export const PAGE_H = 842;
 /** Gap between pages in the horizontal page strip (world units). */
 export const PAGE_GAP = 40;
+
+export type PageSize = 'a4' | 'a5' | 'a6';
+
+export interface PageDims {
+  w: number;
+  h: number;
+  label: string;
+  mm: string;
+}
+
+// ISO A series in points (1 pt = 1/72 in); every size halves the one before it.
+export const PAGE_SIZES: Record<PageSize, PageDims> = {
+  a4: { w: 595, h: 842, label: 'A4', mm: '210 × 297 mm' },
+  a5: { w: 420, h: 595, label: 'A5', mm: '148 × 210 mm' },
+  a6: { w: 298, h: 420, label: 'A6', mm: '105 × 148 mm' },
+};
+export const SIZES: PageSize[] = ['a4', 'a5', 'a6'];
 
 export type Template = 'blank' | 'lined' | 'grid' | 'dots';
 export type Paper = 'white' | 'cream' | 'grey';
@@ -60,6 +75,8 @@ export interface Page {
 }
 
 export interface Notebook {
+  /** paper size, the same for every page */
+  size: PageSize;
   /** template used for newly added pages */
   template: Template;
   spacing: Spacing;
@@ -98,5 +115,9 @@ export function newPage(template: Template): Page {
 }
 
 export function newNotebook(): Notebook {
-  return { template: 'lined', spacing: 1, paper: 'white', pages: [newPage('lined')] };
+  return { size: 'a4', template: 'lined', spacing: 1, paper: 'white', pages: [newPage('lined')] };
+}
+
+export function pageDims(nb: Notebook): PageDims {
+  return PAGE_SIZES[nb.size];
 }

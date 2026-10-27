@@ -2,7 +2,7 @@
 // The viewport maps world -> screen:  screen = world * s + (tx, ty).
 // Pure math, no DOM, so it can be unit-tested.
 
-import { PAGE_GAP, PAGE_H, PAGE_W } from './model.ts';
+import { PAGE_GAP, PAGE_SIZES } from './model.ts';
 
 export interface View {
   s: number;
@@ -19,6 +19,9 @@ export class Viewport {
   vw = 360;
   vh = 640;
   pages = 1;
+  /** page size in points (set from the notebook's paper size) */
+  pageW: number = PAGE_SIZES.a4.w;
+  pageH: number = PAGE_SIZES.a4.h;
   /** screen padding around a page when it is "fit" to the screen */
   readonly pad = 10;
 
@@ -32,10 +35,15 @@ export class Viewport {
     this.ty = v.ty;
   }
 
+  setPageSize(w: number, h: number): void {
+    this.pageW = w;
+    this.pageH = h;
+  }
+
   /** Scale at which one whole page fits the screen. */
   fit(): number {
-    const sx = (this.vw - 2 * this.pad) / PAGE_W;
-    const sy = (this.vh - 2 * this.pad) / PAGE_H;
+    const sx = (this.vw - 2 * this.pad) / this.pageW;
+    const sy = (this.vh - 2 * this.pad) / this.pageH;
     return Math.max(0.05, Math.min(sx, sy));
   }
 
@@ -48,11 +56,11 @@ export class Viewport {
   }
 
   stripWidth(): number {
-    return this.pages * PAGE_W + (this.pages - 1) * PAGE_GAP;
+    return this.pages * this.pageW + (this.pages - 1) * PAGE_GAP;
   }
 
   pageX(i: number): number {
-    return i * (PAGE_W + PAGE_GAP);
+    return i * (this.pageW + PAGE_GAP);
   }
 
   toWorld(px: number, py: number): { x: number; y: number } {
@@ -70,24 +78,24 @@ export class Viewport {
 
   /** Index of the page nearest to the viewport centre. */
   currentPage(): number {
-    const i = Math.round((this.centerX() - PAGE_W / 2) / (PAGE_W + PAGE_GAP));
+    const i = Math.round((this.centerX() - this.pageW / 2) / (this.pageW + PAGE_GAP));
     return clamp(i, 0, this.pages - 1) + 0; // "+ 0" turns -0 into 0
   }
 
   /** Page index under a world point, or -1 if it is in a gap or outside every page. */
   pageAtWorld(wx: number, wy: number, tolerance = 0): number {
-    if (wy < -tolerance || wy > PAGE_H + tolerance) return -1;
-    const i = Math.round((wx - PAGE_W / 2) / (PAGE_W + PAGE_GAP)) + 0; // "+ 0" turns -0 into 0
+    if (wy < -tolerance || wy > this.pageH + tolerance) return -1;
+    const i = Math.round((wx - this.pageW / 2) / (this.pageW + PAGE_GAP)) + 0; // "+ 0" turns -0 into 0
     if (i < 0 || i >= this.pages) return -1;
     const x0 = this.pageX(i);
-    if (wx < x0 - tolerance || wx > x0 + PAGE_W + tolerance) return -1;
+    if (wx < x0 - tolerance || wx > x0 + this.pageW + tolerance) return -1;
     return i;
   }
 
   /** View that centres page `i` at scale `s` (default: fit). */
   viewFor(i: number, s = this.fit()): View {
-    const cx = this.pageX(i) + PAGE_W / 2;
-    return { s, tx: this.vw / 2 - cx * s, ty: this.vh / 2 - (PAGE_H / 2) * s };
+    const cx = this.pageX(i) + this.pageW / 2;
+    return { s, tx: this.vw / 2 - cx * s, ty: this.vh / 2 - (this.pageH / 2) * s };
   }
 
   /** Clamp a view so the strip can't be dragged off screen, allowing a little overscroll. */
@@ -96,12 +104,12 @@ export class Viewport {
     const halfX = this.vw / (2 * s);
     const halfY = this.vh / (2 * s);
     const slack = 36 / s;
-    const ax = Math.min(PAGE_W / 2, halfX);
-    const ay = Math.min(PAGE_H / 2, halfY);
+    const ax = Math.min(this.pageW / 2, halfX);
+    const ay = Math.min(this.pageH / 2, halfY);
     let cx = (this.vw / 2 - v.tx) / v.s;
     let cy = (this.vh / 2 - v.ty) / v.s;
     cx = clamp(cx, ax - slack, this.stripWidth() - ax + slack);
-    cy = clamp(cy, ay - slack, PAGE_H - ay + slack);
+    cy = clamp(cy, ay - slack, this.pageH - ay + slack);
     return { s, tx: this.vw / 2 - cx * s, ty: this.vh / 2 - cy * s };
   }
 

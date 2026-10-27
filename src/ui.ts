@@ -2,9 +2,9 @@
 
 import { drawPage } from './draw.ts';
 import { ICON, templatePreview } from './icons.ts';
-import { PAGE_H, PAGE_W, PAPERS, PAPER_COLOR, TEMPLATES, TEMPLATE_LABEL } from './model.ts';
-import type { Spacing } from './model.ts';
-import { ERASER_SIZES, HL_COLORS, HL_WIDTHS, PEN_COLORS, PEN_WIDTHS } from './prefs.ts';
+import { PAGE_SIZES, PAPERS, PAPER_COLOR, SIZES, TEMPLATES, TEMPLATE_LABEL, pageDims } from './model.ts';
+import type { PageSize, Spacing } from './model.ts';
+import { ERASER_SIZES, HL_COLORS, HL_WIDTHS, MAX_PRESETS, PEN_SHADES, PEN_WIDTHS } from './prefs.ts';
 import type { TouchMode } from './prefs.ts';
 import type { App } from './app.ts';
 
@@ -54,6 +54,10 @@ export class UI {
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
   private editButtons: HTMLButtonElement[] = [];
+  private top!: HTMLElement;
+  private tray!: HTMLElement;
+  private penGroup!: HTMLElement;
+  private hlGroup!: HTMLElement;
 
   private app: App;
 
@@ -93,8 +97,11 @@ export class UI {
     // ---- bottom bar
     const mkTool = (id: 'pen' | 'highlighter' | 'eraser', icon: string, label: string) => {
       const b = iconButton(icon, label, () => {
-        if (app.prefs.tool === id) this.togglePopover('ink');
-        else {
+        if (app.prefs.tool === id) {
+          // the selected pen / highlighter steps to its next preset; the eraser opens its options
+          if (id === 'eraser') this.togglePopover('ink');
+          else app.cyclePreset(id);
+        } else {
           app.setTool(id);
           if (this.popKind === 'ink') this.renderPopover();
         }
@@ -104,19 +111,48 @@ export class UI {
       this.editButtons.push(b);
       return b;
     };
+    // ---- preset row: pen presets | eraser, undo, redo | highlighter presets
+    this.penGroup = h('div', 'preset-group pens');
+    this.hlGroup = h('div', 'preset-group hls');
+    this.undoBtn = iconButton(ICON.undo, 'Undo', () => app.undo());
+    this.redoBtn = iconButton(ICON.redo, 'Redo', () => app.redo());
+    this.editButtons.push(this.undoBtn, this.redoBtn);
+    const middle = h('div', 'preset-mid', undefined, mkTool('eraser', ICON.eraser, 'Eraser'), this.undoBtn, this.redoBtn);
+    const presets = h('div', 'bar presets', undefined, this.penGroup, middle, this.hlGroup);
+
+    // ---- bottom bar
     const bottom = h('footer', 'bar bottom');
-    bottom.append(mkTool('pen', ICON.pen, 'Pen'), mkTool('highlighter', ICON.highlighter, 'Highlighter'), mkTool('eraser', ICON.eraser, 'Eraser'), h('span', 'sp'));
+    bottom.append(mkTool('pen', ICON.pen, 'Pen'), mkTool('highlighter', ICON.highlighter, 'Highlighter'), h('span', 'sp'));
     this.inkDot = h('span', 'ink-dot');
     this.inkBtn = h('button', 'btn ink-btn', { type: 'button', 'aria-label': 'Colour and size', title: 'Colour and size' }, this.inkDot);
     this.inkBtn.addEventListener('click', () => this.togglePopover('ink'));
-    this.undoBtn = iconButton(ICON.undo, 'Undo', () => app.undo());
-    this.redoBtn = iconButton(ICON.redo, 'Redo', () => app.redo());
-    this.editButtons.push(this.inkBtn, this.undoBtn, this.redoBtn);
-    bottom.append(this.inkBtn, this.undoBtn, this.redoBtn);
+    this.editButtons.push(this.inkBtn);
+    bottom.append(this.inkBtn);
 
-    root.append(top, this.stageWrap, bottom);
+    this.top = top;
+    this.tray = h('div', 'tray', undefined, presets, bottom);
+    root.append(top, this.stageWrap, this.tray);
     this.refresh();
     return { stage, base, live };
+  }
+
+  /** Focus mode: both toolbars slide away and the page gets the whole screen. */
+  setFocus(on: boolean): void {
+    this.closePopovers();
+    this.root.classList.toggle('focus', on);
+    this.root.classList.remove('peek');
+    if (on) this.toast('Focus mode · tap for tools · double-tap to exit', undefined, undefined, 2600);
+  }
+
+  /** In focus mode: show the toolbars as an overlay (or hide them again). */
+  setPeek(on: boolean): void {
+    this.closePopovers();
+    if (on) {
+      // popovers are positioned clear of the overlaid bars
+      this.root.style.setProperty('--top-h', `${this.top.offsetHeight}px`);
+      this.root.style.setProperty('--tray-h', `${this.tray.offsetHeight}px`);
+    }
+    this.root.classList.toggle('peek', on);
   }
 
   setLiveBlend(mode: 'multiply' | 'normal'): void {
@@ -144,10 +180,53 @@ export class UI {
       if (b === this.undoBtn || b === this.redoBtn) continue;
       b.disabled = !app.canEdit;
     }
+    this.renderPresets();
     this.root.classList.toggle('locked', app.readOnly);
     this.renderNotice();
     if (this.popKind) this.renderPopover();
     if (this.overviewOpen) this.renderOverview();
+  }
+
+  /** The pen and highlighter quick-pick dots (and their + buttons). */
+  private renderPresets(): void {
+    const app = this.app;
+    const p = app.prefs;
+    const build = (kind: 'pen' | 'highlighter', group: HTMLElement): void => {
+      const list = kind === 'pen' ? p.penPresets : p.hlPresets;
+      const sel = kind === 'pen' ? p.penIdx : p.hlIdx;
+      const name = kind === 'pen' ? 'Pen' : 'Highlighter';
+      group.innerHTML = '';
+      list.forEach((pr, i) => {
+        const active = p.tool === kind && i === sel;
+        const b = h('button', 'preset', { type: 'button', 'aria-label': `${name} preset ${i + 1}`, title: `${name} preset ${i + 1}`, 'aria-pressed': String(active) });
+        const dot = h('span', 'dot');
+        // the dot's size hints at the line width
+        const d = kind === 'pen' ? 12 + ((pr.width - PEN_WIDTHS[0]) / (PEN_WIDTHS[PEN_WIDTHS.length - 1] - PEN_WIDTHS[0])) * 10 : 14 + ((pr.width - HL_WIDTHS[0]) / (HL_WIDTHS[HL_WIDTHS.length - 1] - HL_WIDTHS[0])) * 8;
+        const px = Math.round(Math.max(11, Math.min(22, d)));
+        dot.style.width = dot.style.height = `${px}px`;
+        dot.style.background = pr.color;
+        b.append(dot);
+        b.disabled = !app.canEdit;
+        // tapping the selected preset opens its colour / size options
+        b.addEventListener('click', () => {
+          if (active) this.togglePopover('ink');
+          else app.selectPreset(kind, i);
+        });
+        group.append(b);
+      });
+      const add = h('button', 'preset add', { type: 'button', 'aria-label': `Add ${name.toLowerCase()} preset`, title: `Add ${name.toLowerCase()} preset` });
+      add.innerHTML = ICON.plus;
+      add.disabled = !app.canEdit || list.length >= MAX_PRESETS;
+      add.addEventListener('click', () => {
+        if (!app.addPreset(kind)) return;
+        // open the options so the new preset can be given its colour and size
+        this.popKind = null;
+        this.togglePopover('ink');
+      });
+      group.append(add);
+    };
+    build('pen', this.penGroup);
+    build('highlighter', this.hlGroup);
   }
 
   private renderNotice(): void {
@@ -190,7 +269,7 @@ export class UI {
 
   // ------------------------------------------------------------------ toast
 
-  toast(msg: string, actionLabel?: string, action?: () => void): void {
+  toast(msg: string, actionLabel?: string, action?: () => void, ms?: number): void {
     const el = this.toastEl;
     el.innerHTML = '';
     el.append(h('span', undefined, undefined, msg));
@@ -204,7 +283,7 @@ export class UI {
     }
     el.classList.remove('hidden');
     window.clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => el.classList.add('hidden'), actionLabel ? 5000 : 2600);
+    this.toastTimer = window.setTimeout(() => el.classList.add('hidden'), ms ?? (actionLabel ? 5000 : 2600));
   }
 
   // ------------------------------------------------------------------ popovers
@@ -263,8 +342,9 @@ export class UI {
         ),
       );
     } else {
-      const colors = tool === 'highlighter' ? HL_COLORS : PEN_COLORS;
-      const row = h('div', 'swatches');
+      // pens: a grid of hues (columns) x shades (rows, full colour on top); highlighters: one row
+      const colors = tool === 'highlighter' ? HL_COLORS : PEN_SHADES.flat();
+      const row = h('div', tool === 'highlighter' ? 'swatches' : 'swatches grid');
       for (const c of colors) {
         const b = h('button', 'swatch', { type: 'button', 'aria-label': `Colour ${c}`, 'aria-pressed': String(c === app.currentColor()) });
         b.style.background = c;
@@ -287,6 +367,14 @@ export class UI {
       row.append(b);
     }
     pop.append(row);
+    if (tool !== 'eraser') {
+      const list = tool === 'highlighter' ? app.prefs.hlPresets : app.prefs.penPresets;
+      const rm = h('button', 'row', { type: 'button' });
+      rm.innerHTML = `${ICON.trash}<span>Remove this preset</span>`;
+      rm.disabled = list.length <= 1;
+      rm.addEventListener('click', () => app.removePreset(tool));
+      pop.append(rm);
+    }
   }
 
   private renderPageStyle(pop: HTMLElement): void {
@@ -328,6 +416,16 @@ export class UI {
       ),
     );
 
+    pop.append(
+      h('div', 'pop-sub', undefined, 'Paper size'),
+      this.seg<PageSize>(
+        SIZES.map((k) => ({ value: k, label: PAGE_SIZES[k].label })),
+        nb.size,
+        (v) => app.setPageSize(v),
+      ),
+      h('p', 'muted small', undefined, `${PAGE_SIZES[nb.size].mm}. Changing the size scales your writing to fit (undo restores it).`),
+    );
+
     const paperRow = h('div', 'swatches');
     for (const p of PAPERS) {
       const b = h('button', 'swatch paper', { type: 'button', 'aria-label': `${p} paper`, 'aria-pressed': String(nb.paper === p) });
@@ -361,9 +459,9 @@ export class UI {
       h('div', 'pop-title', undefined, 'Touch input'),
       this.seg<TouchMode>(
         [
+          { value: 'scroll', label: 'Pen only' },
           { value: 'auto', label: 'Auto' },
           { value: 'draw', label: 'Fingers draw' },
-          { value: 'scroll', label: 'Pen only' },
         ],
         app.prefs.touch,
         (v) => app.setTouchMode(v),
@@ -372,13 +470,13 @@ export class UI {
         'p',
         'muted',
         undefined,
-        app.prefs.touch === 'auto'
-          ? app.prefs.penSeen
-            ? 'A stylus has been used on this device, so fingers scroll and zoom while the pen draws.'
-            : 'Fingers draw until a stylus is used, then only the pen draws.'
-          : app.prefs.touch === 'draw'
-            ? 'One finger draws; two fingers pinch to zoom and swipe to turn pages.'
-            : 'Only a pen or mouse draws; one finger scrolls and swipes between pages.',
+        app.prefs.touch === 'scroll'
+          ? 'Only a stylus or mouse draws. One finger scrolls and swipes between pages; two fingers pinch to zoom.'
+          : app.prefs.touch === 'auto'
+            ? app.prefs.penSeen
+              ? 'A stylus has been used on this device, so fingers scroll and zoom while the pen draws.'
+              : 'Fingers draw until a stylus is used, then only the pen draws.'
+            : 'One finger draws; two fingers pinch to zoom and swipe to turn pages.',
       ),
     );
     const img = h('button', 'row', { type: 'button' });
@@ -387,13 +485,19 @@ export class UI {
       this.closePopovers();
       void app.exportPagePng();
     });
+    const focusRow = h('button', 'row', { type: 'button' });
+    focusRow.innerHTML = `${ICON.focus}<span>Focus mode (or double-tap with a finger)</span>`;
+    focusRow.addEventListener('click', () => {
+      this.closePopovers();
+      app.setFocus(true);
+    });
     const fit = h('button', 'row', { type: 'button' });
     fit.innerHTML = `${ICON.overview}<span>Fit page to screen</span>`;
     fit.addEventListener('click', () => {
       this.closePopovers();
       app.fitPage();
     });
-    pop.append(fit, img);
+    pop.append(focusRow, fit, img);
     pop.append(
       h('p', 'muted small', undefined, 'Pinch to zoom out and see several pages; tap one to open it. Swipe sideways to turn the page.'),
       h('p', 'muted small', undefined, `Handwritten Pages v${typeof __VERSION__ === 'string' ? __VERSION__ : 'dev'}`),
@@ -453,11 +557,12 @@ export class UI {
       for (let n = 0; n < 4 && k < thumbs.length; n++, k++) {
         const { canvas, index } = thumbs[k];
         const w = Math.round(cssW * dpr);
+        const { w: pw, h: ph } = pageDims(app.nb);
         canvas.width = w;
-        canvas.height = Math.round((w * PAGE_H) / PAGE_W);
+        canvas.height = Math.round((w * ph) / pw);
         const ctx = canvas.getContext('2d');
         if (!ctx) continue;
-        const sc = w / PAGE_W;
+        const sc = w / pw;
         ctx.scale(sc, sc);
         drawPage(ctx, app.nb, app.nb.pages[index], sc);
       }

@@ -3,7 +3,7 @@
 // drawing latency doesn't depend on how much is already on the page.
 
 import { drawPaper, drawStroke, drawStrokes } from './draw.ts';
-import { PAGE_H, PAGE_W, PAPER_COLOR } from './model.ts';
+import { PAPER_COLOR } from './model.ts';
 import type { App } from './app.ts';
 
 export class Renderer {
@@ -77,7 +77,7 @@ export class Renderer {
     const showNumbers = vp.ratio() < 0.9;
     for (let i = 0; i < nb.pages.length; i++) {
       const px = vp.pageX(i);
-      if (px + PAGE_W < x0 || px > x1) continue;
+      if (px + vp.pageW < x0 || px > x1) continue;
       const page = nb.pages[i];
       ctx.setTransform(k, 0, 0, k, vp.tx * dpr, vp.ty * dpr);
       ctx.save();
@@ -87,12 +87,12 @@ export class Renderer {
       ctx.shadowBlur = 10 * dpr;
       ctx.shadowOffsetY = 2 * dpr;
       ctx.fillStyle = PAPER_COLOR[nb.paper];
-      ctx.fillRect(0, 0, PAGE_W, PAGE_H);
+      ctx.fillRect(0, 0, vp.pageW, vp.pageH);
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
       ctx.shadowOffsetY = 0;
       ctx.beginPath();
-      ctx.rect(0, 0, PAGE_W, PAGE_H);
+      ctx.rect(0, 0, vp.pageW, vp.pageH);
       ctx.clip();
       drawPaper(ctx, nb, page, k);
       drawStrokes(ctx, page.strokes, [x0 - px, y0, x1 - px, y1]);
@@ -105,7 +105,7 @@ export class Renderer {
         // constant on-screen size (about 14 css px) regardless of zoom
         ctx.font = `600 ${14 / vp.s}px system-ui, sans-serif`;
         ctx.textAlign = 'center';
-        ctx.fillText(String(i + 1), PAGE_W / 2, PAGE_H + 24 / vp.s);
+        ctx.fillText(String(i + 1), vp.pageW / 2, vp.pageH + 24 / vp.s);
         ctx.restore();
       }
     }
@@ -123,7 +123,7 @@ export class Renderer {
       ctx.save();
       ctx.translate(vp.pageX(active.pageIndex), 0);
       ctx.beginPath();
-      ctx.rect(0, 0, PAGE_W, PAGE_H);
+      ctx.rect(0, 0, vp.pageW, vp.pageH);
       ctx.clip();
       drawStroke(ctx, active.stroke);
       ctx.restore();

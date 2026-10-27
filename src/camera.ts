@@ -1,7 +1,7 @@
 // View animation: eased moves between views, momentum after a pan, and the "release" logic
 // that snaps to a page / turns the page when a swipe ends at fit zoom.
 
-import { PAGE_GAP, PAGE_W } from './model.ts';
+import { PAGE_GAP } from './model.ts';
 import type { View } from './viewport.ts';
 import type { App } from './app.ts';
 
@@ -93,7 +93,7 @@ export class Camera {
     const x1 = (vp.vw - vp.tx) / s;
     // find a page boundary that is currently inside the viewport (a gap, or an edge showing)
     for (let i = 0; i < vp.pages - 1; i++) {
-      const rightEdge = vp.pageX(i) + PAGE_W;
+      const rightEdge = vp.pageX(i) + vp.pageW;
       const nextLeft = vp.pageX(i + 1);
       if (x0 < rightEdge && x1 > nextLeft) {
         const showingPrev = (rightEdge - x0) * s;
@@ -113,7 +113,7 @@ export class Camera {
     const vp = this.app.vp;
     if (vp.isPaged()) {
       let target = vp.currentPage();
-      const offset = (vp.centerX() - (vp.pageX(startPage) + PAGE_W / 2)) * vp.s; // screen px the page was dragged
+      const offset = (vp.centerX() - (vp.pageX(startPage) + vp.pageW / 2)) * vp.s; // screen px the page was dragged
       if (target === startPage) {
         if (vx < -FLICK_SPEED || offset > TURN_FRACTION * vp.vw) target = startPage + 1;
         else if (vx > FLICK_SPEED || offset < -TURN_FRACTION * vp.vw) target = startPage - 1;
@@ -132,7 +132,7 @@ export class Camera {
     const target = Math.max(0, Math.min(vp.pages - 1, i));
     if (vp.ratio() > 1.06) {
       const cur = vp.currentPage();
-      const shift = (target - cur) * (PAGE_W + PAGE_GAP) * vp.s;
+      const shift = (target - cur) * (vp.pageW + PAGE_GAP) * vp.s;
       this.animateTo({ s: vp.s, tx: vp.tx - shift, ty: 24 }, 260);
     } else {
       this.animateTo(vp.viewFor(target), 260);

@@ -180,3 +180,16 @@ export function eraseFromStroke(s: Stroke, cx: number, cy: number, r: number): S
   flush();
   return touched ? pieces : null;
 }
+
+/** A copy of a stroke scaled about the page origin (pen width scales too, so the page is a true miniature). */
+export function scaleStroke(s: Stroke, k: number): Stroke {
+  const st = strideOf(s);
+  const pts = s.pts.slice();
+  for (let i = 0; i < pts.length; i += st) {
+    pts[i] = Math.round(pts[i] * k * 10) / 10;
+    pts[i + 1] = Math.round(pts[i + 1] * k * 10) / 10;
+  }
+  const out: Stroke = { tool: s.tool, color: s.color, width: Math.round(s.width * k * 10) / 10 || 0.1, pressure: s.pressure, pts };
+  out.bbox = computeBBox(out);
+  return out;
+}

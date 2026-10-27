@@ -4,14 +4,14 @@
 import { Camera } from './camera.ts';
 import { decode, encode, freshNotebook } from './codec.ts';
 import { drawPage } from './draw.ts';
-import { eraseFromStroke, quantize, simplify, strokeHit } from './geometry.ts';
+import { eraseFromStroke, quantize, scaleStroke, simplify, strokeHit } from './geometry.ts';
 import { History } from './history.ts';
 import { createHost } from './host.ts';
 import type { NoteHost } from './host.ts';
 import { Input } from './input.ts';
-import { PAGE_H, PAGE_W, PAPER_COLOR, computeBBox, newPage, strideOf } from './model.ts';
-import type { Notebook, Page, Paper, Spacing, Stroke, Template, Tool } from './model.ts';
-import { loadPrefs, savePrefs } from './prefs.ts';
+import { PAPER_COLOR, PAGE_SIZES, computeBBox, newPage, pageDims, strideOf } from './model.ts';
+import type { Notebook, Page, PageSize, Paper, Spacing, Stroke, Template, Tool } from './model.ts';
+import { HL_COLORS, MAX_PRESETS, PEN_COLORS, loadPrefs, savePrefs } from './prefs.ts';
 import type { EraserMode, Prefs, TouchMode } from './prefs.ts';
 import { Renderer } from './renderer.ts';
 import { UI } from './ui.ts';
@@ -69,6 +69,7 @@ export class App {
       if (document.visibilityState === 'hidden') flush();
     });
     window.addEventListener('pagehide', flush);
+    document.addEventListener('fullscreenchange', () => this.onFullscreenChange());
     window.addEventListener('blur', flush);
 
     this.applyTheme();
@@ -99,6 +100,7 @@ export class App {
     this.loaded = true;
     this.history.clear();
     this.vp.pages = this.nb.pages.length;
+    this.syncPageSize();
     if (this.sized) {
       this.vp.view = this.vp.viewFor(this.initialPage());
       this.camera.stop();
@@ -112,14 +114,14 @@ export class App {
 
   /** One-time gesture hint, shown the first time a notebook opens on this device. */
   private maybeShowHint(): void {
-    const key = 'handwritten-pages:hint-v1';
+    const key = 'handwritten-pages:hint-v2';
     try {
       if (localStorage.getItem(key) || this.unsupported) return;
       localStorage.setItem(key, '1');
     } catch {
       return;
     }
-    this.ui.toast('Pinch to zoom · swipe sideways to turn pages');
+    this.ui.toast('Stylus draws · fingers scroll and pinch to zoom · swipe to turn pages · double-tap for focus mode', undefined, undefined, 6000);
   }
 
   /** Open at the last page that has ink, which is usually where the person left off. */
@@ -224,16 +226,81 @@ export class App {
   }
 
   setColor(c: string): void {
-    if (this.prefs.tool === 'highlighter') this.prefs.hlColor = c;
-    else this.prefs.penColor = c;
+    const p = this.prefs;
+    if (p.tool === 'highlighter') {
+      p.hlColor = c;
+      p.hlPresets[p.hlIdx].color = c;
+    } else {
+      p.penColor = c;
+      p.penPresets[p.penIdx].color = c;
+    }
     this.savePrefs();
   }
 
   setWidth(w: number): void {
-    if (this.prefs.tool === 'highlighter') this.prefs.hlWidth = w;
-    else if (this.prefs.tool === 'eraser') this.prefs.eraserSize = w;
-    else this.prefs.penWidth = w;
+    const p = this.prefs;
+    if (p.tool === 'highlighter') {
+      p.hlWidth = w;
+      p.hlPresets[p.hlIdx].width = w;
+    } else if (p.tool === 'eraser') p.eraserSize = w;
+    else {
+      p.penWidth = w;
+      p.penPresets[p.penIdx].width = w;
+    }
     this.savePrefs();
+  }
+
+  // ---------------------------------------------------------------- presets
+
+  /** Switch to the pen / highlighter with preset `i` (the active colour and size follow it). */
+  selectPreset(kind: 'pen' | 'highlighter', i: number): void {
+    const p = this.prefs;
+    const list = kind === 'pen' ? p.penPresets : p.hlPresets;
+    const pr = list[i];
+    if (!pr) return;
+    if (kind === 'pen') {
+      p.penIdx = i;
+      p.penColor = pr.color;
+      p.penWidth = pr.width;
+    } else {
+      p.hlIdx = i;
+      p.hlColor = pr.color;
+      p.hlWidth = pr.width;
+    }
+    p.tool = kind;
+    this.updateBlend();
+    this.savePrefs();
+  }
+
+  /** Tapping the already-selected pen / highlighter tool steps to its next preset. */
+  cyclePreset(kind: 'pen' | 'highlighter'): void {
+    const p = this.prefs;
+    const n = kind === 'pen' ? p.penPresets.length : p.hlPresets.length;
+    this.selectPreset(kind, ((kind === 'pen' ? p.penIdx : p.hlIdx) + 1) % n);
+  }
+
+  /** Adds a preset (max MAX_PRESETS), based on the current one with the next unused colour, and selects it. */
+  addPreset(kind: 'pen' | 'highlighter'): boolean {
+    const p = this.prefs;
+    const list = kind === 'pen' ? p.penPresets : p.hlPresets;
+    if (list.length >= MAX_PRESETS) return false;
+    const palette = kind === 'pen' ? PEN_COLORS : HL_COLORS;
+    const cur = list[kind === 'pen' ? p.penIdx : p.hlIdx];
+    const used = new Set(list.map((x) => x.color));
+    const color = palette.find((c) => !used.has(c)) ?? palette[0];
+    list.push({ color, width: cur.width });
+    this.selectPreset(kind, list.length - 1);
+    return true;
+  }
+
+  /** Removes the selected preset (always keeps at least one). */
+  removePreset(kind: 'pen' | 'highlighter'): void {
+    const p = this.prefs;
+    const list = kind === 'pen' ? p.penPresets : p.hlPresets;
+    if (list.length <= 1) return;
+    const i = kind === 'pen' ? p.penIdx : p.hlIdx;
+    list.splice(i, 1);
+    this.selectPreset(kind, Math.min(i, list.length - 1));
   }
 
   setEraserMode(m: EraserMode): void {
@@ -283,6 +350,7 @@ export class App {
 
   beginStroke(pageIndex: number, x: number, y: number, pressure: number | null, pointerType: string): void {
     if (!this.canEdit) return;
+    if (this.peek) this.setPeek(false);
     const tool = this.prefs.tool === 'highlighter' ? 'highlighter' : 'pen';
     const stroke: Stroke = {
       tool,
@@ -304,8 +372,8 @@ export class App {
     if (!a) return;
     const s = a.stroke;
     const st = strideOf(s);
-    x = Math.max(-30, Math.min(PAGE_W + 30, x));
-    y = Math.max(-30, Math.min(PAGE_H + 30, y));
+    x = Math.max(-30, Math.min(this.vp.pageW + 30, x));
+    y = Math.max(-30, Math.min(this.vp.pageH + 30, y));
     const n = s.pts.length;
     if (n >= st) {
       const dx = x - s.pts[n - st];
@@ -383,11 +451,11 @@ export class App {
   private eraseStep(wx: number, wy: number, r: number): void {
     const snap = this.eraseSnap;
     if (!snap) return;
-    if (wy < -r || wy > PAGE_H + r) return;
+    if (wy < -r || wy > this.vp.pageH + r) return;
     const whole = this.prefs.eraserMode === 'stroke';
     for (let i = 0; i < this.nb.pages.length; i++) {
       const px = this.vp.pageX(i);
-      if (wx < px - r || wx > px + PAGE_W + r) continue;
+      if (wx < px - r || wx > px + this.vp.pageW + r) continue;
       const page = this.nb.pages[i];
       const lx = wx - px;
       let changed = false;
@@ -513,6 +581,106 @@ export class App {
     this.ui.toast('Page deleted', 'Undo', () => this.undo());
   }
 
+  // ---------------------------------------------------------------- paper size
+
+  /** Point the viewport at the notebook's paper size. */
+  private syncPageSize(): void {
+    const d = pageDims(this.nb);
+    this.vp.setPageSize(d.w, d.h);
+  }
+
+  /**
+   * Change the paper size of the whole notebook. Existing writing is scaled to fit the new page
+   * (a true miniature, so A4 -> A6 halves everything); undo restores the original exactly.
+   */
+  setPageSize(size: PageSize): void {
+    if (!this.canEdit || size === this.nb.size) return;
+    const nb = this.nb;
+    const from = PAGE_SIZES[nb.size];
+    const to = PAGE_SIZES[size];
+    const k = Math.min(to.w / from.w, to.h / from.h);
+    const pages = nb.pages.slice();
+    const prevSize = nb.size;
+    const before = pages.map((p) => p.strokes);
+    const after = pages.map((p) => p.strokes.map((s) => scaleStroke(s, k)));
+    const apply = (sz: PageSize, strokes: Stroke[][]) => {
+      nb.size = sz;
+      pages.forEach((p, i) => (p.strokes = strokes[i]));
+      this.syncPageSize();
+      this.camera.stop();
+      this.vp.view = this.vp.viewFor(this.vp.currentPage());
+      this.lastPageShown = -1;
+      this.viewChanged();
+      this.changed();
+    };
+    this.history.push({ undo: () => apply(prevSize, before), redo: () => apply(size, after) });
+    apply(size, after);
+  }
+
+  // ---------------------------------------------------------------- focus mode
+
+  /**
+   * Focus mode hides the toolbars so the page gets the whole screen, and asks the browser for
+   * fullscreen so Standard Notes' own chrome goes away too (best effort: the host has to allow it).
+   * While in focus mode a single tap brings the toolbars back as an overlay ("peek"); another hides them.
+   */
+  focus = false;
+  peek = false;
+  private fullscreenOn = false;
+
+  setFocus(on: boolean): void {
+    if (this.focus === on) return;
+    this.focus = on;
+    this.peek = false;
+    this.setFullscreen(on);
+    this.ui.setFocus(on);
+  }
+
+  toggleFocus(): void {
+    this.setFocus(!this.focus);
+  }
+
+  setPeek(on: boolean): void {
+    if (!this.focus || this.peek === on) return;
+    this.peek = on;
+    this.ui.setPeek(on);
+  }
+
+  togglePeek(): void {
+    this.setPeek(!this.peek);
+  }
+
+  private setFullscreen(on: boolean): void {
+    try {
+      const doc = document;
+      if (on) {
+        const el = doc.documentElement;
+        if (!doc.fullscreenElement && el.requestFullscreen) {
+          el.requestFullscreen().then(
+            () => {
+              this.fullscreenOn = true;
+              if (!this.focus) this.setFullscreen(false);
+            },
+            () => undefined, // not allowed here (iframe without the fullscreen permission, iPhone...): focus mode still works
+          );
+        }
+      } else if (doc.fullscreenElement) {
+        this.fullscreenOn = false;
+        void doc.exitFullscreen().catch(() => undefined);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /** The person left browser fullscreen themselves (Esc, a swipe...): leave focus mode too. */
+  onFullscreenChange(): void {
+    if (!document.fullscreenElement && this.fullscreenOn) {
+      this.fullscreenOn = false;
+      if (this.focus) this.setFocus(false);
+    }
+  }
+
   // ---------------------------------------------------------------- page style
 
   setTemplate(t: Template, allPages: boolean): void {
@@ -558,6 +726,7 @@ export class App {
     this.nb = freshNotebook();
     this.unsupported = null;
     this.vp.pages = 1;
+    this.syncPageSize();
     this.vp.view = this.vp.viewFor(0);
     this.history.clear();
     this.viewChanged();
@@ -566,12 +735,14 @@ export class App {
 
   // ---------------------------------------------------------------- export
 
-  /** Render page `i` to a PNG blob at 2x (about 144 dpi for A4). */
-  renderPagePng(i: number, scale = 2): Promise<Blob | null> {
+  /** Render page `i` to a PNG blob (about 1190 px wide whatever the paper size). */
+  renderPagePng(i: number, scale?: number): Promise<Blob | null> {
     const page = this.nb.pages[i];
+    const { w, h } = pageDims(this.nb);
+    scale ??= Math.max(2, 1190 / w);
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(PAGE_W * scale);
-    canvas.height = Math.round(PAGE_H * scale);
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
     const ctx = canvas.getContext('2d');
     if (!page || !ctx) return Promise.resolve(null);
     ctx.fillStyle = PAPER_COLOR[this.nb.paper];

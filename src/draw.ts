@@ -1,7 +1,7 @@
 // Canvas drawing of paper backgrounds and ink strokes (shared by the main renderer,
 // the thumbnail overview and PNG export).
 
-import { PAGE_H, PAGE_W, PAPER_COLOR, bboxOf, spacingPt, strideOf } from './model.ts';
+import { PAPER_COLOR, bboxOf, pageDims, spacingPt, strideOf } from './model.ts';
 import type { BBox, Notebook, Page, Stroke } from './model.ts';
 
 // Pressure is bucketed into this many width steps so runs of equal width can share one canvas path
@@ -14,13 +14,17 @@ const PRESSURE_LEVELS = 16;
  */
 export function drawPaper(ctx: CanvasRenderingContext2D, nb: Notebook, page: Page, pxPerPt: number): void {
   const sp = spacingPt(page.template, nb.spacing);
+  const { w: PAGE_W, h: PAGE_H } = pageDims(nb);
   if (page.template === 'blank' || sp * pxPerPt < 3) return;
   const lw = Math.max(0.5, 0.9 / pxPerPt);
   if (page.template === 'lined') {
     ctx.strokeStyle = 'rgba(70, 105, 160, 0.34)';
     ctx.lineWidth = lw;
     ctx.beginPath();
-    for (let y = 64; y <= PAGE_H - 34; y += sp) {
+    // margins scale with the page: 64 pt at the top and 34 pt at the bottom on A4
+    const top = Math.round(PAGE_H * 0.076);
+    const bottom = Math.round(PAGE_H * 0.04);
+    for (let y = top; y <= PAGE_H - bottom; y += sp) {
       const yy = Math.round(y * pxPerPt) / pxPerPt;
       ctx.moveTo(0, yy);
       ctx.lineTo(PAGE_W, yy);
@@ -135,6 +139,7 @@ export function drawStrokes(ctx: CanvasRenderingContext2D, strokes: Stroke[], cu
 
 /** Render a whole page (paper + ink) at the current transform, origin at the page's top-left. */
 export function drawPage(ctx: CanvasRenderingContext2D, nb: Notebook, page: Page, pxPerPt: number, cull?: BBox): void {
+  const { w: PAGE_W, h: PAGE_H } = pageDims(nb);
   ctx.fillStyle = PAPER_COLOR[nb.paper];
   ctx.fillRect(0, 0, PAGE_W, PAGE_H);
   ctx.save();
